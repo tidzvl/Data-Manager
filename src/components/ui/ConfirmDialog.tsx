@@ -26,7 +26,7 @@ export default function ConfirmDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="anim-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="anim-pop fixed left-1/2 top-1/2 z-50 w-[calc(100%-2.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-line bg-surface p-5 shadow-2xl outline-none">
+        <Dialog.Content className="anim-pop-center fixed left-1/2 top-1/2 z-50 w-[calc(100%-2.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-2xl outline-none">
           <div className="flex items-start gap-3">
             {danger && (
               <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-short-soft text-short">

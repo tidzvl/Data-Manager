@@ -290,6 +290,8 @@ textarea::placeholder {
     opacity: 1;
   }
 }
+/* Cho popper (menu): Radix đã đặt transform định vị ở wrapper bên ngoài,
+   nên animate transform ở đây là an toàn. */
 @keyframes pop-in {
   from {
     opacity: 0;
@@ -301,11 +303,42 @@ textarea::placeholder {
   }
 }
 
+/* Cho dialog tự căn giữa bằng translate(-50%,-50%): keyframe PHẢI giữ lại phần
+   translate đó, nếu không hộp sẽ bị đẩy lệch trong lúc animation chạy. */
+@keyframes pop-in-center {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* Cho dialog căn giữa bằng flex: không đụng tới transform định vị. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 [data-state="open"].anim-overlay {
   animation: overlay-in 0.2s ease;
 }
 [data-state="open"].anim-pop {
   animation: pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-state="open"].anim-pop-center {
+  animation: pop-in-center 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.anim-dialog {
+  animation: dialog-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {

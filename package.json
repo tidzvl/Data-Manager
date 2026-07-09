@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "start": "next start",
+    "postbuild": "node scripts/postbuild-standalone.mjs",
+    "start": "node scripts/with-db-url.mjs node .next/standalone/server.js",
     "lint": "next lint",
     "db:push": "node scripts/with-db-url.mjs prisma db push",
     "db:seed": "node scripts/with-db-url.mjs tsx prisma/seed.ts",

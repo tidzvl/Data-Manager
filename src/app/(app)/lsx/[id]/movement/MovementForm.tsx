@@ -301,7 +301,8 @@ export default function MovementForm({
               </button>
             </div>
             <div className="xscroll -mx-1">
-              <div className="flex gap-2 px-1 pb-1">
+              {/* ←/→ nhảy giữa các ô size trong cùng chi tiết */}
+              <div data-qty-group className="flex gap-2 px-1 pb-1">
                 {g.rows.map((r) => {
                   const need = remaining(
                     g.partId,

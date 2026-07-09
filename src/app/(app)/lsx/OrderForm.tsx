@@ -341,7 +341,8 @@ export default function OrderForm({
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
                 Kích thước & SL thành phẩm
               </p>
-              <div className="space-y-2">
+              {/* ←/→ nhảy giữa SL kế hoạch của các size */}
+              <div data-qty-group className="space-y-2">
                 {cat.sizes.map((s, si) => (
                   <div key={si} className="flex items-center gap-2">
                     <span className="nums w-20 shrink-0 rounded-lg border border-line bg-surface-2 py-2 text-center text-sm font-semibold">
@@ -417,7 +418,8 @@ export default function OrderForm({
                         </button>
                       </div>
                       <div className="xscroll -mx-0.5 mt-2">
-                        <div className="flex gap-2 px-0.5 pb-1">
+                        {/* ←/→ nhảy giữa các ô size của chi tiết này */}
+                        <div data-qty-group className="flex gap-2 px-0.5 pb-1">
                           {cat.sizes.map((s, si) => (
                             <div key={si} className="shrink-0 text-center">
                               <div className="nums mb-1 text-xs font-medium text-muted">

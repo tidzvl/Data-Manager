@@ -1,0 +1,157 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+}
+
+/// Chuyền may — 1 chuyền có thể nhận nhiều LSX cùng lúc.
+model SewingLine {
+  id        Int               @id @default(autoincrement())
+  name      String            @unique
+  createdAt DateTime          @default(now())
+  orders    ProductionOrder[]
+}
+
+/// Danh mục kích thước dùng chung (dropdown nhanh).
+model SizeType {
+  id       Int    @id @default(autoincrement())
+  label    String @unique
+  position Int    @default(0)
+}
+
+/// Danh mục chi tiết dùng chung, mỗi chi tiết 1 màu để dễ phân biệt.
+model PartType {
+  id       Int    @id @default(autoincrement())
+  name     String @unique
+  color    String @db.VarChar(9)
+  position Int    @default(0)
+}
+
+enum OrderStatus {
+  ACTIVE
+  DONE
+}
+
+model ProductionOrder {
+  id          Int         @id @default(autoincrement())
+  code        String      @unique
+  productName String
+  /// Mỗi LSX chỉ do 1 chuyền may phụ trách.
+  lineId      Int?
+  status      OrderStatus @default(ACTIVE)
+  note        String?     @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  line       SewingLine? @relation(fields: [lineId], references: [id], onDelete: SetNull)
+  categories Category[]
+  movements  Movement[]
+
+  @@index([lineId])
+  @@index([createdAt])
+}
+
+model Category {
+  id       Int    @id @default(autoincrement())
+  orderId  Int
+  name     String
+  position Int    @default(0)
+
+  order      ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderSizes OrderSize[]
+  parts      Part[]
+
+  @@index([orderId])
+}
+
+model OrderSize {
+  id         Int    @id @default(autoincrement())
+  categoryId Int
+  sizeLabel  String
+  targetQty  Int    @default(0)
+  position   Int    @default(0)
+
+  category    Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  partTargets PartTarget[]
+  items       MovementItem[]
+
+  @@index([categoryId])
+}
+
+model Part {
+  id         Int     @id @default(autoincrement())
+  categoryId Int
+  name       String
+  /// Màu lấy từ PartType lúc tạo, để hiển thị nhất quán.
+  color      String? @db.VarChar(9)
+  position   Int     @default(0)
+
+  category Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  targets  PartTarget[]
+  items    MovementItem[]
+
+  @@index([categoryId])
+}
+
+model PartTarget {
+  id          Int @id @default(autoincrement())
+  partId      Int
+  orderSizeId Int
+  targetQty   Int @default(0)
+
+  part      Part      @relation(fields: [partId], references: [id], onDelete: Cascade)
+  orderSize OrderSize @relation(fields: [orderSizeId], references: [id], onDelete: Cascade)
+
+  @@unique([partId, orderSizeId])
+  @@index([orderSizeId])
+}
+
+enum MovementType {
+  SEW_OUT // Xuất chi tiết về chuyền may
+  SEW_IN // Chuyền may gửi thành phẩm lên
+  EMB_OUT // Gửi đi thêu
+  EMB_IN // Nhận về từ thêu
+}
+
+model Movement {
+  id        Int          @id @default(autoincrement())
+  orderId   Int
+  type      MovementType
+  date      DateTime     @db.Date
+  note      String?      @db.Text
+  createdAt DateTime     @default(now())
+
+  order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items MovementItem[]
+
+  @@index([orderId, type])
+  @@index([date])
+}
+
+model MovementItem {
+  id          Int @id @default(autoincrement())
+  movementId  Int
+  orderSizeId Int
+  partId      Int?
+  quantity    Int
+
+  movement  Movement  @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  orderSize OrderSize @relation(fields: [orderSizeId], references: [id], onDelete: Cascade)
+  part      Part?     @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@index([movementId])
+  @@index([orderSizeId])
+  @@index([partId])
+}

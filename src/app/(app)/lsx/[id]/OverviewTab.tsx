@@ -104,8 +104,7 @@ export default function OverviewTab({ detail }: { detail: OrderDetail }) {
           />
         </div>
         <p className="mt-1.5 text-center text-[11px] text-faint">
-          Xuất chi tiết → chuyền may trả hàng đã may → gửi hàng đã may đi thêu →
-          nhận về
+          
         </p>
       </section>
 

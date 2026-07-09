@@ -21,6 +21,7 @@ export default function SearchBar() {
       const next = new URLSearchParams(params.toString());
       if (value.trim()) next.set("q", value.trim());
       else next.delete("q");
+      next.delete("page"); // đổi từ khoá thì về trang 1
       const qs = next.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     }, 300);

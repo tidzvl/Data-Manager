@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import {
   getOrderDetail,
-  getMovements,
+  getOrderMovements,
   computeProgress,
 } from "@/lib/aggregate";
 import { pct } from "@/components/ProgressBar";
@@ -37,7 +37,7 @@ export default async function OrderHubPage({
 
   const active = tab ?? "overview";
   const progress = computeProgress(detail);
-  const movements = active === "history" ? await getMovements(orderId) : [];
+  const movements = active === "history" ? await getOrderMovements(orderId) : [];
 
   return (
     <main className="px-4">

@@ -1,10 +1,19 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Pencil, Trash2, StickyNote, Search, X } from "lucide-react";
+import {
+  Pencil,
+  Trash2,
+  StickyNote,
+  Search,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+} from "lucide-react";
 import type { MovementView } from "@/lib/aggregate";
 import type { MovementType } from "@prisma/client";
 import { MOVEMENT_SHORT, MOVEMENT_ACCENT, MOVEMENT_TYPES } from "@/lib/labels";
@@ -15,6 +24,8 @@ function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
+
+const PER_PAGE = 20;
 
 export default function HistoryTab({
   orderId,
@@ -28,7 +39,11 @@ export default function HistoryTab({
   const [day, setDay] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   const [delId, setDelId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
   const [pending, startTransition] = useTransition();
+
+  // Đổi bộ lọc thì quay về trang 1
+  useEffect(() => setPage(1), [filter, q, day]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -51,8 +66,15 @@ export default function HistoryTab({
     });
   }, [movements, filter, q, day]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const current = Math.min(page, totalPages);
+  const pageItems = filtered.slice(
+    (current - 1) * PER_PAGE,
+    current * PER_PAGE
+  );
+
   const groups = new Map<string, MovementView[]>();
-  for (const m of filtered) {
+  for (const m of pageItems) {
     if (!groups.has(m.date)) groups.set(m.date, []);
     groups.get(m.date)!.push(m);
   }
@@ -145,6 +167,7 @@ export default function HistoryTab({
                       onClick={() =>
                         setOpenId((v) => (v === m.id ? null : m.id))
                       }
+                      aria-expanded={openId === m.id}
                       className="flex w-full items-center gap-2 px-3 py-2.5 text-left active:bg-surface-2"
                     >
                       <span
@@ -158,6 +181,12 @@ export default function HistoryTab({
                       <span className="nums ml-auto font-semibold">
                         {m.total}
                       </span>
+                      <ChevronDown
+                        size={16}
+                        className={`shrink-0 text-faint transition-transform ${
+                          openId === m.id ? "rotate-180" : ""
+                        }`}
+                      />
                     </button>
 
                     {openId === m.id && (
@@ -218,6 +247,15 @@ export default function HistoryTab({
         </div>
       )}
 
+      {filtered.length > 0 && (
+        <PagerBar
+          page={current}
+          totalPages={totalPages}
+          total={filtered.length}
+          onPage={setPage}
+        />
+      )}
+
       <ConfirmDialog
         open={delId != null}
         onOpenChange={(v) => !v && setDelId(null)}
@@ -228,6 +266,60 @@ export default function HistoryTab({
         onConfirm={confirmDelete}
       />
     </div>
+  );
+}
+
+function PagerBar({
+  page,
+  totalPages,
+  total,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  onPage: (p: number) => void;
+}) {
+  if (totalPages <= 1) {
+    return (
+      <p className="py-2 text-center text-xs text-faint">
+        <span className="nums">{total}</span> phiếu
+      </p>
+    );
+  }
+  const btn =
+    "tap flex items-center justify-center rounded-xl border border-line px-4 bg-surface active:bg-surface-2 disabled:opacity-40";
+  return (
+    <nav
+      aria-label="Phân trang"
+      className="flex items-center justify-between gap-2 py-2"
+    >
+      <button
+        onClick={() => onPage(page - 1)}
+        disabled={page <= 1}
+        aria-label="Trang trước"
+        className={btn}
+      >
+        <ChevronLeft size={18} />
+      </button>
+      <div className="text-center text-xs text-muted">
+        <div>
+          Trang <span className="nums font-semibold text-ink">{page}</span> /{" "}
+          <span className="nums">{totalPages}</span>
+        </div>
+        <div className="text-faint">
+          <span className="nums">{total}</span> phiếu
+        </div>
+      </div>
+      <button
+        onClick={() => onPage(page + 1)}
+        disabled={page >= totalPages}
+        aria-label="Trang sau"
+        className={btn}
+      >
+        <ChevronRight size={18} />
+      </button>
+    </nav>
   );
 }
 

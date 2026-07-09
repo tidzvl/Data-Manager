@@ -195,14 +195,34 @@ export type OrderSummary = {
   progress: OrderProgress;
 };
 
-/** Danh sách LSX cho trang chủ, có lọc trạng thái và tìm kiếm. */
+/** Số bản ghi mặc định trên 1 trang. */
+export const PER_PAGE = 20;
+
+export type Paged<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+};
+
+function pageInfo(total: number, page: number, perPage: number) {
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const current = Math.min(Math.max(1, page), totalPages);
+  return { totalPages, current };
+}
+
+/** Danh sách LSX cho trang chủ: lọc trạng thái, tìm kiếm, phân trang. */
 export async function getOrderSummaries(opts?: {
   status?: "ACTIVE" | "DONE";
   /** tìm theo mã LSX, tên sản phẩm, hoặc tên chuyền may */
   q?: string;
   lineId?: number;
-}): Promise<OrderSummary[]> {
+  page?: number;
+  perPage?: number;
+}): Promise<Paged<OrderSummary>> {
   const q = opts?.q?.trim();
+  const perPage = opts?.perPage ?? PER_PAGE;
   const where: Prisma.ProductionOrderWhereInput = {
     ...(opts?.status ? { status: opts.status } : {}),
     ...(opts?.lineId ? { lineId: opts.lineId } : {}),
@@ -217,24 +237,35 @@ export async function getOrderSummaries(opts?: {
       : {}),
   };
 
+  const total = await prisma.productionOrder.count({ where });
+  const { totalPages, current } = pageInfo(total, opts?.page ?? 1, perPage);
+
   const orders = await prisma.productionOrder.findMany({
     where,
     orderBy: { createdAt: "desc" },
     include: orderInclude,
+    skip: (current - 1) * perPage,
+    take: perPage,
   });
 
-  return orders.map((o) => {
-    const d = buildDetail(o);
-    return {
-      id: d.id,
-      code: d.code,
-      productName: d.productName,
-      status: d.status,
-      createdAt: d.createdAt,
-      lineName: d.lineName,
-      progress: computeProgress(d),
-    };
-  });
+  return {
+    items: orders.map((o) => {
+      const d = buildDetail(o);
+      return {
+        id: d.id,
+        code: d.code,
+        productName: d.productName,
+        status: d.status,
+        createdAt: d.createdAt,
+        lineName: d.lineName,
+        progress: computeProgress(d),
+      };
+    }),
+    total,
+    page: current,
+    perPage,
+    totalPages,
+  };
 }
 
 export type MovementView = {
@@ -255,25 +286,24 @@ export type MovementView = {
   }[];
 };
 
-/** Danh sách phiếu của 1 LSX (hoặc toàn bộ nếu orderId undefined). */
-export async function getMovements(orderId?: number): Promise<MovementView[]> {
-  const movements = await prisma.movement.findMany({
-    where: orderId ? { orderId } : undefined,
-    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+const movementInclude = {
+  order: { select: { code: true, line: { select: { name: true } } } },
+  items: {
     include: {
-      order: { select: { code: true, line: { select: { name: true } } } },
-      items: {
-        include: {
-          part: { select: { name: true, color: true } },
-          orderSize: {
-            select: { sizeLabel: true, category: { select: { name: true } } },
-          },
-        },
+      part: { select: { name: true, color: true } },
+      orderSize: {
+        select: { sizeLabel: true, category: { select: { name: true } } },
       },
     },
-  });
+  },
+} satisfies Prisma.MovementInclude;
 
-  return movements.map((mv) => ({
+type MovementWithAll = Prisma.MovementGetPayload<{
+  include: typeof movementInclude;
+}>;
+
+function toMovementView(mv: MovementWithAll): MovementView {
+  return {
     id: mv.id,
     orderId: mv.orderId,
     orderCode: mv.order.code,
@@ -289,7 +319,87 @@ export async function getMovements(orderId?: number): Promise<MovementView[]> {
       sizeLabel: it.orderSize.sizeLabel,
       quantity: it.quantity,
     })),
-  }));
+  };
+}
+
+const MOVEMENT_ORDER: Prisma.MovementOrderByWithRelationInput[] = [
+  { date: "desc" },
+  { createdAt: "desc" },
+];
+
+/** Toàn bộ phiếu của 1 LSX (số lượng có giới hạn theo lệnh, lọc ở client). */
+export async function getOrderMovements(
+  orderId: number
+): Promise<MovementView[]> {
+  const movements = await prisma.movement.findMany({
+    where: { orderId },
+    orderBy: MOVEMENT_ORDER,
+    include: movementInclude,
+  });
+  return movements.map(toMovementView);
+}
+
+function parseDay(s: string): Date | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return undefined;
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+}
+
+/** Nhật ký toàn cục: lọc + phân trang trên server. */
+export async function getJournal(opts?: {
+  q?: string;
+  type?: MovementType;
+  /** yyyy-mm-dd */
+  day?: string;
+  page?: number;
+  perPage?: number;
+}): Promise<Paged<MovementView>> {
+  const q = opts?.q?.trim();
+  const perPage = opts?.perPage ?? PER_PAGE;
+  const day = opts?.day ? parseDay(opts.day) : undefined;
+
+  const where: Prisma.MovementWhereInput = {
+    ...(opts?.type ? { type: opts.type } : {}),
+    ...(day ? { date: day } : {}),
+    ...(q
+      ? {
+          OR: [
+            { note: { contains: q } },
+            { order: { code: { contains: q } } },
+            { order: { productName: { contains: q } } },
+            { order: { line: { name: { contains: q } } } },
+            { items: { some: { part: { name: { contains: q } } } } },
+            {
+              items: { some: { orderSize: { sizeLabel: { contains: q } } } },
+            },
+            {
+              items: {
+                some: { orderSize: { category: { name: { contains: q } } } },
+              },
+            },
+          ],
+        }
+      : {}),
+  };
+
+  const total = await prisma.movement.count({ where });
+  const { totalPages, current } = pageInfo(total, opts?.page ?? 1, perPage);
+
+  const movements = await prisma.movement.findMany({
+    where,
+    orderBy: MOVEMENT_ORDER,
+    include: movementInclude,
+    skip: (current - 1) * perPage,
+    take: perPage,
+  });
+
+  return {
+    items: movements.map(toMovementView),
+    total,
+    page: current,
+    perPage,
+    totalPages,
+  };
 }
 
 export { ps };

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getOrderSummaries } from "@/lib/aggregate";
 import ThemeToggle from "@/components/theme/ThemeToggle";
+import Pagination from "@/components/Pagination";
 import SearchBar from "./SearchBar";
 import OrderList from "./OrderList";
 import RootFab from "./RootFab";
@@ -10,16 +11,32 @@ export const dynamic = "force-dynamic";
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ f?: string; q?: string }>;
+  searchParams: Promise<{ f?: string; q?: string; page?: string }>;
 }) {
-  const { f, q } = await searchParams;
+  const { f, q, page } = await searchParams;
   const status = f === "done" ? "DONE" : f === "active" ? "ACTIVE" : undefined;
-  const orders = await getOrderSummaries({ status, q });
+  const current = Math.max(1, parseInt(page ?? "1", 10) || 1);
 
-  const keep = (extra: Record<string, string | undefined>) => {
+  const result = await getOrderSummaries({ status, q, page: current });
+
+  /** Giữ q + filter, đổi page (bỏ page = quay về trang 1). */
+  const href = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
     if (q) p.set("q", q);
-    for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v);
+    if (f) p.set("f", f);
+    for (const [k, v] of Object.entries(extra)) {
+      if (v) p.set(k, v);
+      else p.delete(k);
+    }
+    const s = p.toString();
+    return s ? `/?${s}` : "/";
+  };
+
+  // Đổi filter thì về trang 1
+  const filterHref = (fv?: string) => {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    if (fv) p.set("f", fv);
     const s = p.toString();
     return s ? `/?${s}` : "/";
   };
@@ -37,14 +54,14 @@ export default async function HomePage({
         </div>
 
         <div className="mt-2.5 flex gap-2">
-          <FilterChip href={keep({})} active={!status} label="Tất cả" />
+          <FilterChip href={filterHref()} active={!status} label="Tất cả" />
           <FilterChip
-            href={keep({ f: "active" })}
+            href={filterHref("active")}
             active={status === "ACTIVE"}
             label="Đang chạy"
           />
           <FilterChip
-            href={keep({ f: "done" })}
+            href={filterHref("done")}
             active={status === "DONE"}
             label="Hoàn thành"
           />
@@ -53,11 +70,20 @@ export default async function HomePage({
 
       {q && (
         <p className="mb-2 text-xs text-muted">
-          {orders.length} kết quả cho “{q}”
+          <span className="nums">{result.total}</span> kết quả cho “{q}”
         </p>
       )}
 
-      <OrderList orders={orders} searching={!!q} />
+      <OrderList orders={result.items} searching={!!q} />
+
+      <Pagination
+        page={result.page}
+        totalPages={result.totalPages}
+        total={result.total}
+        unit="lệnh sản xuất"
+        makeHref={(p) => href({ page: p > 1 ? String(p) : undefined })}
+      />
+
       <RootFab />
     </main>
   );

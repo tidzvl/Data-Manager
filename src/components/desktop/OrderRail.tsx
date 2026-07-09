@@ -12,6 +12,7 @@ import {
   Factory,
 } from "lucide-react";
 import type { OrderNavItem } from "@/lib/aggregate";
+import OrderFormModal from "@/components/forms/OrderFormModal";
 
 const RAIL_COOKIE = "dm-rail";
 const W_OPEN = "17rem";
@@ -26,6 +27,7 @@ export default function OrderRail({
 }) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [q, setQ] = useState("");
+  const [newOrderOpen, setNewOrderOpen] = useState(false);
   const pathname = usePathname();
 
   const activeId = useMemo(() => {
@@ -68,14 +70,14 @@ export default function OrderRail({
           >
             <PanelLeftOpen size={18} />
           </button>
-          <Link
-            href="/lsx/new"
+          <button
+            onClick={() => setNewOrderOpen(true)}
             aria-label="Tạo LSX"
             title="Tạo LSX"
             className="flex h-9 w-9 items-center justify-center rounded-lg text-brand transition-colors hover:bg-brand-soft"
           >
             <Plus size={18} />
-          </Link>
+          </button>
           <span className="mt-1 h-px w-6 bg-line" />
           <span className="nums text-[10px] text-faint">{orders.length}</span>
         </div>
@@ -174,15 +176,21 @@ export default function OrderRail({
           </nav>
 
           <div className="border-t border-line p-2">
-            <Link
-              href="/lsx/new"
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-line py-2 text-xs font-medium text-muted transition-colors hover:border-[var(--color-brand-line)] hover:text-brand"
+            <button
+              onClick={() => setNewOrderOpen(true)}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line py-2 text-xs font-medium text-muted transition-colors hover:border-[var(--color-brand-line)] hover:text-brand"
             >
               <Plus size={14} /> Tạo LSX
-            </Link>
+            </button>
           </div>
         </>
       )}
+
+      <OrderFormModal
+        open={newOrderOpen}
+        onOpenChange={setNewOrderOpen}
+        gotoAfterCreate
+      />
     </motion.aside>
   );
 }

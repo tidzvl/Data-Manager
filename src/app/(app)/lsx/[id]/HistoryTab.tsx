@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -18,6 +17,9 @@ import type { MovementView } from "@/lib/aggregate";
 import type { MovementType } from "@prisma/client";
 import { MOVEMENT_SHORT, MOVEMENT_ACCENT, MOVEMENT_TYPES } from "@/lib/labels";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import MovementFormModal, {
+  type MovementModalTarget,
+} from "@/components/forms/MovementFormModal";
 import { deleteMovement } from "@/app/actions/movements";
 
 function formatDate(iso: string): string {
@@ -39,6 +41,7 @@ export default function HistoryTab({
   const [day, setDay] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   const [delId, setDelId] = useState<number | null>(null);
+  const [editTarget, setEditTarget] = useState<MovementModalTarget | null>(null);
   const [page, setPage] = useState(1);
   const [pending, startTransition] = useTransition();
 
@@ -223,12 +226,14 @@ export default function HistoryTab({
                           </p>
                         )}
                         <div className="mt-2 flex gap-2">
-                          <Link
-                            href={`/lsx/${orderId}/movement/${m.id}`}
+                          <button
+                            onClick={() =>
+                              setEditTarget({ orderId, movementId: m.id })
+                            }
                             className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-medium active:bg-surface-2"
                           >
                             <Pencil size={14} /> Sửa
-                          </Link>
+                          </button>
                           <button
                             onClick={() => setDelId(m.id)}
                             disabled={pending}
@@ -264,6 +269,11 @@ export default function HistoryTab({
         confirmLabel="Xoá"
         danger
         onConfirm={confirmDelete}
+      />
+
+      <MovementFormModal
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
       />
     </div>
   );

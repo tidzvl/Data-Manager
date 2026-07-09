@@ -8,6 +8,9 @@ import { Pencil, Trash2, StickyNote, ChevronDown } from "lucide-react";
 import type { MovementView } from "@/lib/aggregate";
 import { MOVEMENT_SHORT, MOVEMENT_ACCENT } from "@/lib/labels";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import MovementFormModal, {
+  type MovementModalTarget,
+} from "@/components/forms/MovementFormModal";
 import { deleteMovement } from "@/app/actions/movements";
 
 function formatDate(iso: string): string {
@@ -24,6 +27,7 @@ export default function JournalList({
 }) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [del, setDel] = useState<MovementView | null>(null);
+  const [editTarget, setEditTarget] = useState<MovementModalTarget | null>(null);
   const [pending, startTransition] = useTransition();
 
   const confirmDelete = () => {
@@ -139,12 +143,17 @@ export default function JournalList({
                       )}
 
                       <div className="mt-2 flex gap-2">
-                        <Link
-                          href={`/lsx/${m.orderId}/movement/${m.id}`}
+                        <button
+                          onClick={() =>
+                            setEditTarget({
+                              orderId: m.orderId,
+                              movementId: m.id,
+                            })
+                          }
                           className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-medium active:bg-surface-2"
                         >
                           <Pencil size={14} /> Sửa
-                        </Link>
+                        </button>
                         <Link
                           href={`/lsx/${m.orderId}`}
                           className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-muted active:bg-surface-2"
@@ -176,6 +185,11 @@ export default function JournalList({
         confirmLabel="Xoá"
         danger
         onConfirm={confirmDelete}
+      />
+
+      <MovementFormModal
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
       />
     </div>
   );

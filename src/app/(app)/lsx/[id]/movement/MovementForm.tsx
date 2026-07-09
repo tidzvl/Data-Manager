@@ -39,11 +39,15 @@ export type MovementFormInitial = {
 export default function MovementForm({
   detail,
   initial,
+  onSaved,
 }: {
   detail: OrderDetail;
   initial: MovementFormInitial;
+  /** Có = đang chạy trong modal: không điều hướng, để nơi gọi tự xử lý. */
+  onSaved?: () => void;
 }) {
   const router = useRouter();
+  const embedded = !!onSaved;
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -184,7 +188,8 @@ export default function MovementForm({
       const res = await saveMovement(payload);
       if (res.ok) {
         toast.success(initial.id ? "Đã cập nhật phiếu" : "Đã lưu phiếu");
-        router.push(`/lsx/${detail.id}?tab=history`);
+        if (onSaved) onSaved();
+        else router.push(`/lsx/${detail.id}?tab=history`);
       } else {
         setError(res.error ?? "Không lưu được.");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -332,7 +337,13 @@ export default function MovementForm({
         ))}
       </div>
 
-      <div className="sticky-above-nav z-20 flex items-center gap-2">
+      <div
+        className={`z-20 flex items-center gap-2 ${
+          embedded
+            ? "sticky bottom-0 -mx-4 border-t border-line bg-paper px-4 py-3 sm:-mx-5 sm:px-5"
+            : "sticky-above-nav"
+        }`}
+      >
         <div className="rounded-xl border border-line bg-surface px-3 py-2 text-sm">
           Tổng: <span className="nums font-bold">{total}</span>
         </div>

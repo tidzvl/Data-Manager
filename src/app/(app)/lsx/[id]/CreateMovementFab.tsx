@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Plus,
@@ -12,6 +11,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 import Sheet from "@/components/ui/Sheet";
+import MovementFormModal, {
+  type MovementModalTarget,
+} from "@/components/forms/MovementFormModal";
 import { MOVEMENT_TYPES } from "@/lib/labels";
 import type { MovementType } from "@prisma/client";
 
@@ -47,11 +49,11 @@ const META: Record<
 
 export default function CreateMovementFab({ orderId }: { orderId: number }) {
   const [open, setOpen] = useState(false);
-  const router = useRouter();
+  const [target, setTarget] = useState<MovementModalTarget | null>(null);
 
   const pick = (type: MovementType) => {
     setOpen(false);
-    router.push(`/lsx/${orderId}/movement/new?type=${type}`);
+    setTarget({ orderId, type });
   };
 
   return (
@@ -98,6 +100,8 @@ export default function CreateMovementFab({ orderId }: { orderId: number }) {
           })}
         </div>
       </Sheet>
+
+      <MovementFormModal target={target} onClose={() => setTarget(null)} />
     </>
   );
 }

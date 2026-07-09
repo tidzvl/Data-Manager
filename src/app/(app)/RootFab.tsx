@@ -7,12 +7,14 @@ import { toast } from "sonner";
 import { Plus, ClipboardPlus, Factory, ChevronRight } from "lucide-react";
 import Sheet from "@/components/ui/Sheet";
 import PromptDialog from "@/components/ui/PromptDialog";
+import OrderFormModal from "@/components/forms/OrderFormModal";
 import { createLine } from "@/app/actions/lines";
 
 export default function RootFab() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [addLineOpen, setAddLineOpen] = useState(false);
+  const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [, startTransition] = useTransition();
 
   const doAddLine = (name: string) =>
@@ -43,7 +45,7 @@ export default function RootFab() {
           <button
             onClick={() => {
               setOpen(false);
-              router.push("/lsx/new");
+              setNewOrderOpen(true);
             }}
             className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface-2 px-3 py-3 text-left active:border-brand-line"
           >
@@ -88,6 +90,7 @@ export default function RootFab() {
         confirmLabel="Thêm"
         onSubmit={doAddLine}
       />
+      <OrderFormModal open={newOrderOpen} onOpenChange={setNewOrderOpen} />
     </>
   );
 }

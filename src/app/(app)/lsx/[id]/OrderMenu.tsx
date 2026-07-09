@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { MoreVertical, Pencil, CheckCircle2, RotateCcw, Trash2 } from "lucide-react";
 import { Menu, MenuItem } from "@/components/ui/Menu";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import OrderFormModal from "@/components/forms/OrderFormModal";
 import { setOrderStatus, deleteOrder } from "@/app/actions/orders";
 
 export default function OrderMenu({
@@ -17,7 +17,7 @@ export default function OrderMenu({
 }) {
   const [pending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const router = useRouter();
+  const [editOpen, setEditOpen] = useState(false);
 
   const toggleStatus = () =>
     startTransition(async () => {
@@ -46,7 +46,7 @@ export default function OrderMenu({
         }
       >
         <MenuItem
-          onSelect={() => router.push(`/lsx/${orderId}/edit`)}
+          onSelect={() => setEditOpen(true)}
           icon={<Pencil size={16} />}
         >
           Sửa LSX
@@ -80,6 +80,12 @@ export default function OrderMenu({
         confirmLabel="Xoá"
         danger
         onConfirm={doDelete}
+      />
+
+      <OrderFormModal
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        orderId={orderId}
       />
     </>
   );

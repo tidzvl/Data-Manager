@@ -39,13 +39,19 @@ export default function OrderForm({
   lines: initialLines,
   sizeTypes: initialSizeTypes,
   partTypes: initialPartTypes,
+  onSaved,
+  onCancel,
 }: {
   initial: OrderFormInitial;
   lines: { id: number; name: string }[];
   sizeTypes: SizeTypeDto[];
   partTypes: PartTypeDto[];
+  /** Có = đang chạy trong modal: không điều hướng, để nơi gọi tự xử lý. */
+  onSaved?: (id: number) => void;
+  onCancel?: () => void;
 }) {
   const router = useRouter();
+  const embedded = !!onSaved;
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -226,7 +232,8 @@ export default function OrderForm({
       const res = await saveOrder(payload);
       if (res.ok && res.id) {
         toast.success(initial.id ? "Đã cập nhật LSX" : "Đã tạo LSX");
-        router.push(`/lsx/${res.id}`);
+        if (onSaved) onSaved(res.id);
+        else router.push(`/lsx/${res.id}`);
       } else {
         setError(res.error ?? "Không lưu được.");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -468,9 +475,15 @@ export default function OrderForm({
         <Layers size={16} /> Thêm phân loại
       </button>
 
-      <div className="sticky-above-nav z-20 flex gap-2">
+      <div
+        className={`z-20 flex gap-2 ${
+          embedded
+            ? "sticky bottom-0 -mx-4 border-t border-line bg-paper px-4 py-3 sm:-mx-5 sm:px-5"
+            : "sticky-above-nav"
+        }`}
+      >
         <button
-          onClick={() => router.back()}
+          onClick={onCancel ?? (() => router.back())}
           className="tap flex-1 rounded-xl border border-line bg-surface font-medium backdrop-blur"
         >
           Huỷ

@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { toast } from "sonner";
 import {
   Pencil,
@@ -16,6 +15,9 @@ import type { MovementView } from "@/lib/aggregate";
 import type { MovementType } from "@prisma/client";
 import { MOVEMENT_SHORT, MOVEMENT_ACCENT, MOVEMENT_TYPES } from "@/lib/labels";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import MovementFormModal, {
+  type MovementModalTarget,
+} from "@/components/forms/MovementFormModal";
 import { deleteMovement } from "@/app/actions/movements";
 
 const PER_PAGE = 20;
@@ -37,6 +39,7 @@ export default function HistoryTable({
   const [day, setDay] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   const [delId, setDelId] = useState<number | null>(null);
+  const [editTarget, setEditTarget] = useState<MovementModalTarget | null>(null);
   const [page, setPage] = useState(1);
   const [pending, startTransition] = useTransition();
 
@@ -179,13 +182,16 @@ export default function HistoryTable({
                       <td className="num font-semibold">{m.total}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
-                          <Link
-                            href={`/lsx/${orderId}/movement/${m.id}`}
+                          <button
+                            onClick={() =>
+                              setEditTarget({ orderId, movementId: m.id })
+                            }
                             aria-label="Sửa phiếu"
+                            title="Sửa phiếu"
                             className="flex h-8 w-8 items-center justify-center rounded-lg border border-line text-muted transition-colors hover:text-brand"
                           >
                             <Pencil size={14} />
-                          </Link>
+                          </button>
                           <button
                             onClick={() => setDelId(m.id)}
                             disabled={pending}
@@ -268,6 +274,11 @@ export default function HistoryTable({
         confirmLabel="Xoá"
         danger
         onConfirm={confirmDelete}
+      />
+
+      <MovementFormModal
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
       />
     </div>
   );

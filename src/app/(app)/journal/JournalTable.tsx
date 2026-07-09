@@ -7,6 +7,9 @@ import { Pencil, Trash2, StickyNote, ChevronRight, ExternalLink } from "lucide-r
 import type { MovementView } from "@/lib/aggregate";
 import { MOVEMENT_SHORT, MOVEMENT_ACCENT } from "@/lib/labels";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import MovementFormModal, {
+  type MovementModalTarget,
+} from "@/components/forms/MovementFormModal";
 import { deleteMovement } from "@/app/actions/movements";
 
 function formatDate(iso: string) {
@@ -23,6 +26,7 @@ export default function JournalTable({
 }) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [del, setDel] = useState<MovementView | null>(null);
+  const [editTarget, setEditTarget] = useState<MovementModalTarget | null>(null);
   const [pending, startTransition] = useTransition();
 
   const confirmDelete = () => {
@@ -107,14 +111,19 @@ export default function JournalTable({
                     <td className="num font-semibold">{m.total}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
-                        <Link
-                          href={`/lsx/${m.orderId}/movement/${m.id}`}
+                        <button
+                          onClick={() =>
+                            setEditTarget({
+                              orderId: m.orderId,
+                              movementId: m.id,
+                            })
+                          }
                           aria-label="Sửa phiếu"
                           title="Sửa phiếu"
                           className="flex h-8 w-8 items-center justify-center rounded-lg border border-line text-muted transition-colors hover:text-brand"
                         >
                           <Pencil size={14} />
-                        </Link>
+                        </button>
                         <Link
                           href={`/lsx/${m.orderId}`}
                           aria-label="Mở LSX"
@@ -179,6 +188,11 @@ export default function JournalTable({
         confirmLabel="Xoá"
         danger
         onConfirm={confirmDelete}
+      />
+
+      <MovementFormModal
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
       />
     </>
   );

@@ -74,7 +74,7 @@ export default function OrdersTable({
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface">
-      <div className="dt-scroll thin-scroll max-h-[calc(100dvh-var(--topbar-h)-17rem)] overflow-auto">
+      <div className="thin-scroll max-h-[calc(100dvh-var(--topbar-h)-17rem)] overflow-auto">
         <table className="dt">
           <thead>
             <tr>

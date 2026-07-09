@@ -288,6 +288,39 @@ export async function getOrderSummaries(opts?: {
   };
 }
 
+export type OrderNavItem = {
+  id: number;
+  code: string;
+  productName: string;
+  status: "ACTIVE" | "DONE";
+  lineName: string | null;
+};
+
+/**
+ * Danh sách LSX rút gọn cho menu truy cập nhanh.
+ * Không nạp categories/movements nên rất nhẹ. Đang chạy xếp trước.
+ */
+export async function getOrderNavList(limit = 200): Promise<OrderNavItem[]> {
+  const rows = await prisma.productionOrder.findMany({
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: limit,
+    select: {
+      id: true,
+      code: true,
+      productName: true,
+      status: true,
+      line: { select: { name: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    productName: r.productName,
+    status: r.status,
+    lineName: r.line?.name ?? null,
+  }));
+}
+
 export type MovementView = {
   id: number;
   orderId: number;

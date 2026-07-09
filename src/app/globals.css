@@ -154,9 +154,10 @@ body {
   font-size: 0.875rem;
 }
 .dt thead th {
+  /* top: 0 vì scrollport của sticky là khung cuộn gần nhất (hoặc card
+     overflow-hidden). Đặt offset > 0 sẽ đẩy th xuống trong card không cuộn. */
   position: sticky;
-  /* Dính ngay dưới topbar khi cuộn cả trang */
-  top: var(--topbar-h);
+  top: 0;
   z-index: 1;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-line);
@@ -185,10 +186,6 @@ body {
 }
 .dt tfoot td {
   border-top: 1px solid var(--color-line);
-}
-/* Bảng nằm trong khung cuộn riêng: thead dính vào đỉnh khung, không phải topbar */
-.dt-scroll .dt thead th {
-  top: 0;
 }
 .dt .num {
   text-align: right;

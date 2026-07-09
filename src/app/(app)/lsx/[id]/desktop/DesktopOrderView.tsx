@@ -170,8 +170,8 @@ export default function DesktopOrderView({
       </section>
 
       {/* Cây cấu trúc + bảng dữ liệu */}
-      <div className="grid grid-cols-[22rem_minmax(0,1fr)] gap-6 xl:grid-cols-[24rem_minmax(0,1fr)]">
-        <div>
+      <div className="grid grid-cols-[22rem_minmax(0,1fr)] items-start gap-6 xl:grid-cols-[24rem_minmax(0,1fr)]">
+        <div className="sticky top-[calc(var(--topbar-h)+1rem)]">
           <h2 className="mb-2 text-sm font-semibold">Cấu trúc lệnh</h2>
           <OrderTree detail={detail} />
         </div>

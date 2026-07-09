@@ -31,7 +31,7 @@ export default function OrderTree({ detail }: { detail: OrderDetail }) {
   );
 
   return (
-    <div className="thin-scroll max-h-[calc(100dvh-11rem)] overflow-auto rounded-[var(--radius-card)] border border-line bg-surface p-3">
+    <div className="thin-scroll max-h-[calc(100dvh-var(--topbar-h)-7rem)] overflow-auto rounded-[var(--radius-card)] border border-line bg-surface p-3">
       {/* Gốc: LSX */}
       <div className="mb-1 flex items-start gap-2.5 rounded-lg bg-brand-soft px-2.5 py-2 ring-1 ring-inset ring-[var(--color-brand-line)]">
         <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand text-brand-fg">

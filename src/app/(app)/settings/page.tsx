@@ -38,7 +38,7 @@ export default async function SettingsPage() {
       </header>
 
       <div className="space-y-4 pb-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 lg:space-y-0">
-        <section className="rounded-[var(--radius-card)] border border-line bg-surface p-4 lg:hidden">
+        <section className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
           <h2 className="mb-3 font-semibold">Giao diện</h2>
           <ThemeToggle />
           <p className="mt-2 text-xs text-muted">

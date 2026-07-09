@@ -31,6 +31,18 @@ gửi lên — mọi con số "đã gửi / còn thiếu / gửi ngày nào" tí
    ```
    Đăng nhập bằng `ADMIN_USERNAME` / `ADMIN_PASSWORD` trong `.env` (mặc định admin / admin123).
 
+## Deploy bằng pm2
+```bash
+npm ci
+cp .env.example .env         # điền DB_* + AUTH_SECRET
+npm run db:push && npm run db:seed   # chỉ lần đầu
+npm run build                # postbuild tự copy static + public vào standalone
+pm2 start ecosystem.config.cjs && pm2 save
+```
+> **Truy cập qua HTTP thuần** (VD `http://ip:2610`, không có HTTPS): cookie phiên
+> mang cờ `Secure` nên trình duyệt không lưu, đăng nhập xong sẽ bị đá về trang
+> login. Đặt `COOKIE_SECURE=false` trong `.env`, hoặc tốt hơn là dựng HTTPS.
+
 ## Deploy bằng Docker
 MySQL chạy sẵn bên ngoài; container chỉ chứa Next.js.
 ```bash

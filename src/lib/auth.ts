@@ -12,6 +12,19 @@ function secretKey() {
   return new TextEncoder().encode(secret);
 }
 
+/**
+ * Cookie có cờ Secure thì trình duyệt chỉ gửi qua HTTPS. Chạy production sau
+ * HTTPS thì để mặc định. Nếu buộc phải phục vụ qua HTTP thuần (VD: truy cập
+ * thẳng http://ip:port trong mạng nội bộ), đặt COOKIE_SECURE=false — không có
+ * nó thì đăng nhập xong cookie bị trình duyệt bỏ, và bị đá về trang login.
+ */
+function useSecureCookie(): boolean {
+  const v = process.env.COOKIE_SECURE?.trim().toLowerCase();
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+  return process.env.NODE_ENV === "production";
+}
+
 export type SessionPayload = {
   userId: number;
   username: string;
@@ -28,7 +41,7 @@ export async function createSession(payload: SessionPayload) {
   const store = await cookies();
   store.set(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: useSecureCookie(),
     sameSite: "lax",
     maxAge: MAX_AGE,
     path: "/",

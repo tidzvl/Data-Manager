@@ -68,7 +68,7 @@ export default function OverviewTab({ detail }: { detail: OrderDetail }) {
 
       {/* Dòng chảy sản xuất: chi tiết → may → thêu */}
       <section>
-        <h3 className="mb-2 text-sm font-semibold">Dòng chảy sản xuất</h3>
+        <h3 className="mb-2 text-sm font-semibold">Quy trình</h3>
         <div className="grid grid-cols-5 gap-1">
           <Node
             Icon={ClipboardList}

@@ -142,6 +142,76 @@ body {
 /* Chiều cao thanh nav dưới (icon + nhãn + padding) */
 :root {
   --nav-h: 3.75rem;
+  --sidebar-w: 15.5rem;
+}
+
+/* ---- Bảng dữ liệu (desktop) ---- */
+.dt {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+}
+.dt thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+.dt tbody td {
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.625rem 0.75rem;
+  vertical-align: middle;
+}
+.dt tbody tr {
+  transition: background-color 0.12s ease;
+}
+.dt tbody tr:hover {
+  background: var(--color-surface-2);
+}
+.dt tbody tr:last-child td {
+  border-bottom: 0;
+}
+.dt tfoot td {
+  border-top: 1px solid var(--color-line);
+}
+.dt .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Cây cấu trúc LSX ---- */
+.tree-branch {
+  border-left: 1px solid var(--color-line);
+}
+
+/* Thanh cuộn mảnh cho desktop */
+@media (pointer: fine) {
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
+  .thin-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .thin-scroll::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border-radius: 4px;
+  }
+  .thin-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
 
 /* Nổi phía trên thanh nav — dùng cho FAB */
@@ -153,6 +223,12 @@ body {
 .sticky-above-nav {
   position: sticky;
   bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 0.75rem);
+}
+/* Desktop không có thanh nav dưới */
+@media (min-width: 1024px) {
+  .sticky-above-nav {
+    bottom: 1.5rem;
+  }
 }
 
 .panel {

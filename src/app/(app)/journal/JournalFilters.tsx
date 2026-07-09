@@ -43,9 +43,9 @@ export default function JournalFilters() {
   const hasFilter = qParam !== "" || tParam !== "" || dParam !== "";
 
   return (
-    <div className="space-y-2.5">
-      <div className="flex gap-2">
-        <div className="relative min-w-0 flex-1">
+    <div className="space-y-2.5 lg:flex lg:items-center lg:gap-3 lg:space-y-0">
+      <div className="flex gap-2 lg:shrink-0">
+        <div className="relative min-w-0 flex-1 lg:w-80 lg:flex-none">
           <Search
             size={16}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint"
@@ -66,7 +66,7 @@ export default function JournalFilters() {
         />
       </div>
 
-      <div className="xscroll -mx-4 px-4">
+      <div className="xscroll -mx-4 px-4 lg:mx-0 lg:px-0">
         <div className="flex gap-1.5">
           <Chip active={!tParam} onClick={() => push({ t: undefined })}>
             Tất cả

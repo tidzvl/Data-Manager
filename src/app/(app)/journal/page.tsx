@@ -4,6 +4,7 @@ import type { MovementType } from "@prisma/client";
 import Pagination from "@/components/Pagination";
 import JournalFilters from "./JournalFilters";
 import JournalList from "./JournalList";
+import JournalTable from "./JournalTable";
 
 export const dynamic = "force-dynamic";
 
@@ -31,25 +32,50 @@ export default async function JournalPage({
     return s ? `/journal?${s}` : "/journal";
   };
 
+  const pager = (
+    <Pagination
+      page={result.page}
+      totalPages={result.totalPages}
+      total={result.total}
+      unit="phiếu"
+      makeHref={makeHref}
+    />
+  );
+
   return (
-    <main className="px-4 pt-safe">
-      <header className="sticky top-0 z-20 -mx-4 mb-3 border-b border-line bg-paper/80 px-4 pb-3 pt-3 backdrop-blur-xl">
-        <h1 className="text-xl font-bold tracking-tight">Nhật ký</h1>
-        <p className="text-sm text-muted">Mọi phiếu theo ngày</p>
-        <div className="mt-3">
+    <>
+      {/* ---------- MOBILE ---------- */}
+      <main className="px-4 pt-safe lg:hidden">
+        <header className="sticky top-0 z-20 -mx-4 mb-3 border-b border-line bg-paper/80 px-4 pb-3 pt-3 backdrop-blur-xl">
+          <h1 className="text-xl font-bold tracking-tight">Nhật ký</h1>
+          <p className="text-sm text-muted">Mọi phiếu theo ngày</p>
+          <div className="mt-3">
+            <JournalFilters />
+          </div>
+        </header>
+
+        <JournalList movements={result.items} filtered={filtered} />
+        {pager}
+      </main>
+
+      {/* ---------- DESKTOP ---------- */}
+      <div className="hidden px-8 py-6 lg:block">
+        <header className="mb-5">
+          <h1 className="text-2xl font-bold tracking-tight">Nhật ký</h1>
+          <p className="mt-0.5 text-sm text-muted">
+            <span className="nums">{result.total}</span> phiếu · trang{" "}
+            <span className="nums">{result.page}</span>/
+            <span className="nums">{result.totalPages}</span>
+          </p>
+        </header>
+
+        <div className="mb-4">
           <JournalFilters />
         </div>
-      </header>
 
-      <JournalList movements={result.items} filtered={filtered} />
-
-      <Pagination
-        page={result.page}
-        totalPages={result.totalPages}
-        total={result.total}
-        unit="phiếu"
-        makeHref={makeHref}
-      />
-    </main>
+        <JournalTable movements={result.items} filtered={filtered} />
+        {pager}
+      </div>
+    </>
   );
 }

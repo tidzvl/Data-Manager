@@ -17,7 +17,7 @@ export default function BottomNav() {
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/80 backdrop-blur-xl pb-safe">
+    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/80 backdrop-blur-xl pb-safe lg:hidden">
       <div className="mx-auto grid max-w-md grid-cols-3">
         {items.map(({ href, label, Icon }) => {
           const active = isActive(href);

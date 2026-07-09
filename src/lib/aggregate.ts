@@ -212,7 +212,25 @@ function pageInfo(total: number, page: number, perPage: number) {
   return { totalPages, current };
 }
 
-/** Danh sách LSX cho trang chủ: lọc trạng thái, tìm kiếm, phân trang. */
+/** Các cột có thể sắp xếp ở DB (tiến độ là số dẫn xuất nên không sort được). */
+export const ORDER_SORTS = [
+  "createdAt",
+  "code",
+  "productName",
+  "line",
+  "status",
+] as const;
+export type OrderSort = (typeof ORDER_SORTS)[number];
+
+function orderByFor(
+  sort: OrderSort,
+  dir: "asc" | "desc"
+): Prisma.ProductionOrderOrderByWithRelationInput {
+  if (sort === "line") return { line: { name: dir } };
+  return { [sort]: dir } as Prisma.ProductionOrderOrderByWithRelationInput;
+}
+
+/** Danh sách LSX cho trang chủ: lọc trạng thái, tìm kiếm, sắp xếp, phân trang. */
 export async function getOrderSummaries(opts?: {
   status?: "ACTIVE" | "DONE";
   /** tìm theo mã LSX, tên sản phẩm, hoặc tên chuyền may */
@@ -220,6 +238,8 @@ export async function getOrderSummaries(opts?: {
   lineId?: number;
   page?: number;
   perPage?: number;
+  sort?: OrderSort;
+  dir?: "asc" | "desc";
 }): Promise<Paged<OrderSummary>> {
   const q = opts?.q?.trim();
   const perPage = opts?.perPage ?? PER_PAGE;
@@ -242,7 +262,7 @@ export async function getOrderSummaries(opts?: {
 
   const orders = await prisma.productionOrder.findMany({
     where,
-    orderBy: { createdAt: "desc" },
+    orderBy: orderByFor(opts?.sort ?? "createdAt", opts?.dir ?? "desc"),
     include: orderInclude,
     skip: (current - 1) * perPage,
     take: perPage,

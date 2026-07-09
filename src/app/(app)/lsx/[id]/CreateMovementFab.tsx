@@ -62,7 +62,7 @@ export default function CreateMovementFab({ orderId }: { orderId: number }) {
         transition={{ delay: 0.15, type: "spring", stiffness: 500, damping: 30 }}
         whileTap={{ scale: 0.94 }}
         onClick={() => setOpen(true)}
-        className="above-nav fixed right-4 z-40 flex h-14 items-center gap-2 rounded-full bg-brand pl-4 pr-5 font-semibold text-brand-fg shadow-lg shadow-brand/25"
+        className="above-nav fixed right-4 z-40 flex h-14 items-center lg:hidden gap-2 rounded-full bg-brand pl-4 pr-5 font-semibold text-brand-fg shadow-lg shadow-brand/25"
       >
         <Plus size={22} strokeWidth={2.6} /> Phiếu
       </motion.button>

@@ -27,16 +27,18 @@ export default async function SettingsPage() {
   }));
 
   return (
-    <main className="px-4 pt-safe">
-      <header className="sticky top-0 z-20 -mx-4 mb-3 border-b border-line bg-paper/80 px-4 pb-3 pt-3 backdrop-blur-xl">
-        <h1 className="text-xl font-bold tracking-tight">Cài đặt</h1>
+    <main className="px-4 pt-safe lg:px-8 lg:pt-6">
+      <header className="sticky top-0 z-20 -mx-4 mb-3 border-b border-line bg-paper/80 px-4 pb-3 pt-3 backdrop-blur-xl lg:static lg:mx-0 lg:mb-5 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
+        <h1 className="text-xl font-bold tracking-tight lg:text-2xl">
+          Cài đặt
+        </h1>
         <p className="text-sm text-muted">
           Đăng nhập: {session?.name} ({session?.username})
         </p>
       </header>
 
-      <div className="space-y-4 pb-4">
-        <section className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
+      <div className="space-y-4 pb-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 lg:space-y-0">
+        <section className="rounded-[var(--radius-card)] border border-line bg-surface p-4 lg:hidden">
           <h2 className="mb-3 font-semibold">Giao diện</h2>
           <ThemeToggle />
           <p className="mt-2 text-xs text-muted">
@@ -49,7 +51,7 @@ export default async function SettingsPage() {
           <LinesManager lines={lines} />
         </section>
 
-        <section className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
+        <section className="rounded-[var(--radius-card)] border border-line bg-surface p-4 lg:row-span-2">
           <h2 className="mb-1 font-semibold">Danh mục dùng chung</h2>
           <p className="mb-3 text-xs text-muted">
             Dùng để chọn nhanh khi tạo LSX.
@@ -62,7 +64,7 @@ export default async function SettingsPage() {
           <ChangePassword />
         </section>
 
-        <form action={logoutAction}>
+        <form action={logoutAction} className="lg:hidden">
           <button
             type="submit"
             className="tap w-full rounded-xl border border-line bg-surface font-medium text-short active:bg-surface-2"

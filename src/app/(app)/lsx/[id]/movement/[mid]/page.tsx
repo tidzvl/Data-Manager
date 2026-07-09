@@ -30,7 +30,7 @@ export default async function EditMovementPage({
   }
 
   return (
-    <main className="px-4">
+    <main className="px-4 lg:mx-auto lg:max-w-4xl lg:px-8 lg:py-6">
       <PageHeader title="Sửa phiếu" back={`/lsx/${orderId}?tab=history`} />
       <MovementForm
         detail={detail}

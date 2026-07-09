@@ -13,7 +13,7 @@ export default async function NewOrderPage() {
   ]);
 
   return (
-    <main className="px-4">
+    <main className="px-4 lg:mx-auto lg:max-w-4xl lg:px-8 lg:py-6">
       <PageHeader title="Tạo LSX" back="/" />
       <OrderForm
         lines={lines.map((l) => ({ id: l.id, name: l.name }))}

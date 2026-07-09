@@ -64,6 +64,15 @@ Trần của từng bước, dùng cho nút "Điền hết số còn thiếu":
 | `EMB_OUT` | đã may − đã gửi thêu |
 | `EMB_IN` | đã gửi thêu − đã nhận về |
 
+## Hai giao diện
+Cùng một nguồn dữ liệu, hai bố cục render song song (`lg:hidden` / `hidden lg:block`)
+thay vì kéo giãn layout mobile:
+
+- **Mobile** (< 1024px): bottom nav, FAB, card, accordion — tối ưu một tay.
+- **Desktop** (≥ 1024px): sidebar cố định, **data table** (sắp xếp theo cột, hàng bung
+  chi tiết), và **cây cấu trúc LSX** (LSX → phân loại → kích thước / chi tiết) hiển thị
+  tiến độ ở từng nhánh. Trang LSX chia 2 cột: cây bên trái, bảng dữ liệu bên phải.
+
 ## Cấu trúc chính
 - `src/lib/aggregate.ts` — tầng tính toán đã gửi/thiếu/đang ở thêu (mọi màn hình đọc từ đây).
 - `src/app/(app)/lsx/[id]/` — trang hub LSX 4 tab (Tổng quan / Chi tiết / Thành phẩm / Lịch sử).

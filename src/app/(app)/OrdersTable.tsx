@@ -34,14 +34,17 @@ export default function OrdersTable({
   orders,
   sort,
   dir,
-  makeSortHref,
+  sortHrefs,
   searching,
 }: {
   orders: OrderSummary[];
   sort: SortKey;
   dir: "asc" | "desc";
-  /** Tạo URL đổi cột sắp xếp, giữ nguyên filter/tìm kiếm. */
-  makeSortHref: (key: SortKey, dir: "asc" | "desc") => string;
+  /**
+   * URL dựng sẵn ở server cho mỗi cột (bấm vào là đảo chiều sắp xếp).
+   * Không truyền hàm được vì đây là Client Component.
+   */
+  sortHrefs: Record<SortKey, string>;
   searching: boolean;
 }) {
   const router = useRouter();
@@ -85,10 +88,7 @@ export default function OrdersTable({
                       label={c.label}
                       active={sort === c.sort}
                       dir={dir}
-                      href={makeSortHref(
-                        c.sort,
-                        sort === c.sort && dir === "asc" ? "desc" : "asc"
-                      )}
+                      href={sortHrefs[c.sort]}
                     />
                   ) : (
                     c.label

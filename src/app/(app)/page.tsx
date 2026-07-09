@@ -71,6 +71,14 @@ export default async function HomePage({
     return `/?${p.toString()}`;
   };
 
+  // Dựng sẵn URL cho từng cột — Client Component không nhận được hàm.
+  const sortHrefs = Object.fromEntries(
+    ORDER_SORTS.map((key) => [
+      key,
+      sortHref(key, sortKey === key && sortDir === "asc" ? "desc" : "asc"),
+    ])
+  ) as Record<OrderSort, string>;
+
   const chips = [
     { href: filterHref(), active: !status, label: "Tất cả" },
     { href: filterHref("active"), active: status === "ACTIVE", label: "Đang chạy" },
@@ -147,7 +155,7 @@ export default async function HomePage({
           orders={result.items}
           sort={sortKey}
           dir={sortDir}
-          makeSortHref={sortHref}
+          sortHrefs={sortHrefs}
           searching={!!q}
         />
         {pager}

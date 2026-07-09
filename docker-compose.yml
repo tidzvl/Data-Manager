@@ -1,0 +1,16 @@
+# MySQL đã deploy sẵn bên ngoài — compose này chỉ chạy Next.js.
+# Điền biến DB trong file .env (cùng thư mục) trước khi `docker compose up`.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-DataManager}
+      DATABASE_URL: ${DATABASE_URL:-}
+      AUTH_SECRET: ${AUTH_SECRET}

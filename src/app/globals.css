@@ -1,0 +1,239 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-paper: var(--dm-paper);
+  --color-surface: var(--dm-surface);
+  --color-surface-2: var(--dm-surface-2);
+  --color-ink: var(--dm-ink);
+  --color-muted: var(--dm-muted);
+  --color-faint: var(--dm-faint);
+  --color-line: var(--dm-line);
+  --color-hairline: var(--dm-hairline);
+
+  --color-brand: var(--dm-brand);
+  --color-brand-fg: var(--dm-brand-fg);
+  --color-brand-soft: var(--dm-brand-soft);
+  --color-brand-line: var(--dm-brand-line);
+
+  --color-ok: var(--dm-ok);
+  --color-ok-soft: var(--dm-ok-soft);
+  --color-warn: var(--dm-warn);
+  --color-warn-soft: var(--dm-warn-soft);
+  --color-short: var(--dm-short);
+  --color-short-soft: var(--dm-short-soft);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-card: 14px;
+
+  --animate-fade-up: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.25s ease both;
+}
+
+/* ---- Theme: TỐI (mặc định) ---- */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --dm-paper: #0a0a0b;
+  --dm-surface: #131317;
+  --dm-surface-2: #1b1b20;
+  --dm-ink: #ededf0;
+  --dm-muted: #9a9aa6;
+  --dm-faint: #6a6a76;
+  --dm-line: #26262d;
+  --dm-hairline: rgba(255, 255, 255, 0.06);
+
+  --dm-brand: #22d3ee;
+  --dm-brand-fg: #04252b;
+  --dm-brand-soft: rgba(34, 211, 238, 0.12);
+  --dm-brand-line: rgba(34, 211, 238, 0.35);
+
+  --dm-ok: #34d399;
+  --dm-ok-soft: rgba(52, 211, 153, 0.12);
+  --dm-warn: #fbbf24;
+  --dm-warn-soft: rgba(251, 191, 36, 0.13);
+  --dm-short: #fb7185;
+  --dm-short-soft: rgba(251, 113, 133, 0.13);
+
+  --dm-glow: rgba(34, 211, 238, 0.06);
+  --dm-shadow: rgba(0, 0, 0, 0.4);
+}
+
+/* ---- Theme: SÁNG — tông "ánh nắng" (kem ấm + hổ phách) ---- */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --dm-paper: #fdf6ea;
+  --dm-surface: #fffdf8;
+  --dm-surface-2: #f6eddb;
+  --dm-ink: #2a2016;
+  --dm-muted: #7c6b57;
+  --dm-faint: #a99a86;
+  --dm-line: #ecdfc9;
+  --dm-hairline: rgba(255, 255, 255, 0.7);
+
+  --dm-brand: #ea8006;
+  --dm-brand-fg: #ffffff;
+  --dm-brand-soft: rgba(234, 128, 6, 0.13);
+  --dm-brand-line: rgba(234, 128, 6, 0.4);
+
+  --dm-ok: #12813f;
+  --dm-ok-soft: rgba(18, 129, 63, 0.12);
+  --dm-warn: #b25a09;
+  --dm-warn-soft: rgba(178, 90, 9, 0.13);
+  --dm-short: #d4213c;
+  --dm-short-soft: rgba(212, 33, 60, 0.1);
+
+  --dm-glow: rgba(245, 175, 40, 0.22);
+  --dm-shadow: rgba(120, 80, 20, 0.15);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+  background-image: radial-gradient(
+    120% 60% at 50% -10%,
+    var(--dm-glow),
+    transparent 60%
+  );
+  background-attachment: fixed;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+.nums {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+}
+
+.xscroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.xscroll::-webkit-scrollbar {
+  display: none;
+}
+
+.tap {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+/* Chiều cao thanh nav dưới (icon + nhãn + padding) */
+:root {
+  --nav-h: 3.75rem;
+}
+
+/* Nổi phía trên thanh nav — dùng cho FAB */
+.above-nav {
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 1rem);
+}
+
+/* Thanh hành động dính, luôn nằm trên thanh nav */
+.sticky-above-nav {
+  position: sticky;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 0.75rem);
+}
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  box-shadow:
+    inset 0 1px 0 0 var(--color-hairline),
+    0 1px 2px 0 var(--dm-shadow);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+input,
+textarea,
+select {
+  color: var(--color-ink);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-faint);
+}
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+[data-state="open"].anim-overlay {
+  animation: overlay-in 0.2s ease;
+}
+[data-state="open"].anim-pop {
+  animation: pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

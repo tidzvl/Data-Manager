@@ -3,24 +3,7 @@
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-
-/** Bảng màu dùng khi tạo chi tiết mới (chọn màu ít trùng nhất). */
-const PALETTE = [
-  "#ef4444",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#14b8a6",
-  "#3b82f6",
-  "#8b5cf6",
-  "#ec4899",
-  "#f43f5e",
-  "#64748b",
-  "#06b6d4",
-  "#84cc16",
-  "#a855f7",
-  "#0ea5e9",
-];
+import { pickPartColor } from "@/lib/part-colors";
 
 export type SizeTypeDto = { id: number; label: string };
 export type PartTypeDto = { id: number; name: string; color: string };
@@ -79,8 +62,7 @@ export async function createPartType(
 
   const all = await prisma.partType.findMany({ select: { color: true } });
   const used = new Set(all.map((p) => p.color));
-  const color =
-    PALETTE.find((c) => !used.has(c)) ?? PALETTE[all.length % PALETTE.length];
+  const color = pickPartColor(used, all.length);
 
   const max = await prisma.partType.aggregate({ _max: { position: true } });
   const row = await prisma.partType.create({

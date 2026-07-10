@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Poppins } from "next/font/google";
 import { Toaster } from "sonner";
 import ThemeScript from "@/components/theme/ThemeScript";
 import "./globals.css";
@@ -12,6 +12,13 @@ const inter = Inter({
 const mono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
+  display: "swap",
+});
+/** Chỉ dùng cho bảng kính desktop. */
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-poppins",
   display: "swap",
 });
 
@@ -50,7 +57,7 @@ export default function RootLayout({
   return (
     <html
       lang="vi"
-      className={`${inter.variable} ${mono.variable}`}
+      className={`${inter.variable} ${mono.variable} ${poppins.variable}`}
       suppressHydrationWarning
     >
       <body>

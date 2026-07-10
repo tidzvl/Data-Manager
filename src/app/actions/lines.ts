@@ -51,3 +51,13 @@ export async function listLines() {
   await requireSession();
   return prisma.sewingLine.findMany({ orderBy: { name: "asc" } });
 }
+
+/** Kèm số LSX đang dùng — LinesManager cần để chặn xoá chuyền còn hàng. */
+export async function listLinesWithUsage() {
+  await requireSession();
+  const rows = await prisma.sewingLine.findMany({
+    orderBy: { name: "asc" },
+    include: { _count: { select: { orders: true } } },
+  });
+  return rows.map((l) => ({ id: l.id, name: l.name, used: l._count.orders }));
+}

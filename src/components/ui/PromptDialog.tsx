@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { surfaceClass, useGlass } from "./glass-context";
 
 export default function PromptDialog({
   open,
@@ -20,6 +21,7 @@ export default function PromptDialog({
   confirmLabel?: string;
   onSubmit: (value: string) => void;
 }) {
+  const glass = useGlass();
   const [value, setValue] = useState(defaultValue);
   useEffect(() => {
     if (open) setValue(defaultValue);
@@ -36,7 +38,9 @@ export default function PromptDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="anim-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="anim-pop-center fixed left-1/2 top-1/3 z-50 w-[calc(100%-2.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-2xl outline-none">
+        <Dialog.Content
+          className={`anim-pop-center fixed left-1/2 top-1/3 z-50 w-[calc(100%-2.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl p-5 shadow-2xl outline-none ${surfaceClass(glass)}`}
+        >
           <Dialog.Title className="font-semibold">{title}</Dialog.Title>
           <Dialog.Description className="sr-only">{title}</Dialog.Description>
           <input

@@ -72,20 +72,56 @@ model Category {
   order      ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderSizes OrderSize[]
   parts      Part[]
+  stages     Stage[]
 
   @@index([orderId])
+}
+
+/// Một dòng trên bảng quản lý: đúng một công đoạn của một phân loại.
+/// Khoá duy nhất (categoryId, type) — mà Category thuộc đúng 1 LSX — nên đây
+/// chính là bộ ba (LSX, Phân loại, Mục). Có bản ghi thì mới có dòng; không tạo
+/// sẵn đủ 4 mục cho mọi phân loại nữa.
+model Stage {
+  id         Int          @id @default(autoincrement())
+  categoryId Int
+  type       MovementType
+  createdAt  DateTime     @default(now())
+
+  category Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  targets  StageTarget[]
+
+  @@unique([categoryId, type])
+  @@index([categoryId])
+}
+
+/// SL kế hoạch của một công đoạn theo từng size.
+/// Riêng "Gửi may" không dùng bảng này: target của nó là tổng định mức các chi
+/// tiết (PartTarget), để dòng cha luôn bằng tổng các dòng con.
+model StageTarget {
+  id          Int @id @default(autoincrement())
+  stageId     Int
+  orderSizeId Int
+  targetQty   Int @default(0)
+
+  stage     Stage     @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  orderSize OrderSize @relation(fields: [orderSizeId], references: [id], onDelete: Cascade)
+
+  @@unique([stageId, orderSizeId])
+  @@index([orderSizeId])
 }
 
 model OrderSize {
   id         Int    @id @default(autoincrement())
   categoryId Int
   sizeLabel  String
+  /// SL thành phẩm kế hoạch của phân loại. Target theo từng mục nằm ở StageTarget.
   targetQty  Int    @default(0)
   position   Int    @default(0)
 
-  category    Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  partTargets PartTarget[]
-  items       MovementItem[]
+  category     Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  partTargets  PartTarget[]
+  stageTargets StageTarget[]
+  items        MovementItem[]
 
   @@index([categoryId])
 }

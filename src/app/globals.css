@@ -94,8 +94,8 @@ body {
 }
 
 body {
-  background: var(--color-paper);
-  color: var(--color-ink);
+  background: var(--dm-paper);
+  color: var(--dm-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -159,19 +159,19 @@ body {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-line);
+  background: var(--dm-surface);
+  border-bottom: 1px solid var(--dm-line);
   padding: 0.625rem 0.75rem;
   text-align: left;
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-faint);
+  color: var(--dm-faint);
   white-space: nowrap;
 }
 .dt tbody td {
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--dm-line);
   padding: 0.625rem 0.75rem;
   vertical-align: middle;
 }
@@ -179,13 +179,13 @@ body {
   transition: background-color 0.12s ease;
 }
 .dt tbody tr:hover {
-  background: var(--color-surface-2);
+  background: var(--dm-surface-2);
 }
 .dt tbody tr:last-child td {
   border-bottom: 0;
 }
 .dt tfoot td {
-  border-top: 1px solid var(--color-line);
+  border-top: 1px solid var(--dm-line);
 }
 .dt .num {
   text-align: right;
@@ -195,21 +195,261 @@ body {
 
 /* ---- Cây cấu trúc LSX ---- */
 .tree-branch {
-  border-left: 1px solid var(--color-line);
+  border-left: 1px solid var(--dm-line);
+}
+
+/* ---- Bảng kính (desktop, chỉ tông tối) ----
+   Đặt ở :root chứ không ở .glass-scope, vì modal portal ra <body> nằm ngoài
+   scope. GlassDashboard ghi đè --g-blur/--g-tint/--g-opacity thẳng lên
+   documentElement khi người dùng kéo slider, nên panel và modal luôn khớp nhau. */
+:root {
+  --g-blur: 22px;
+  --g-tint: 38, 28, 64;
+  --g-opacity: 0.42;
+
+  --g-text-2: rgba(255, 255, 255, 0.75);
+  --g-text-3: rgba(255, 255, 255, 0.55);
+  --g-text-4: rgba(255, 255, 255, 0.5);
+  --g-dim: rgba(255, 255, 255, 0.25);
+  --g-accent: #c6b5ff;
+  /* Chưa đủ định mức — cam đỏ, đủ tương phản trên nền tím than */
+  --g-short: #ff9d7a;
+
+  --g-line-1: rgba(255, 255, 255, 0.05);
+  --g-line-2: rgba(255, 255, 255, 0.09);
+  --g-line-3: rgba(255, 255, 255, 0.12);
+  --g-line-4: rgba(255, 255, 255, 0.14);
+  --g-fill: rgba(255, 255, 255, 0.08);
+}
+
+.glass-scope {
+  font-family: var(--font-poppins), var(--font-sans);
+  color: #fff;
+}
+
+.glass-panel {
+  background: rgba(var(--g-tint), var(--g-opacity));
+  backdrop-filter: blur(var(--g-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(140%);
+  border: 1px solid var(--g-line-4);
+  box-shadow:
+    0 30px 80px rgba(20, 10, 50, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Header, dòng cha và mọi dòng con dùng chung một grid để canh cột. */
+.glass-row {
+  display: grid;
+  grid-template-columns: var(--grid-cols);
+  gap: 8px;
+}
+
+/* Sáng nhẹ khi rê chuột. Bo góc để vệt sáng không chạm mép khối kính. */
+.glass-hover {
+  border-radius: 8px;
+  transition: background-color 0.12s ease;
+}
+.glass-hover:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Highlight cả cột: một dải chạy suốt chiều cao bảng, nằm SAU các dòng.
+   Vị trí/bề rộng do LsxGrid đo từ ô đang trỏ rồi ghi vào --col-* / --edit-*,
+   nên không phải render lại hàng nghìn ô mỗi lần con trỏ đổi cột. */
+.glass-colband {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 8px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+/* Dòng nổi lên trên dải, nếu không dải sẽ phủ mất chữ. */
+.glass-row {
+  position: relative;
+  z-index: 1;
+}
+
+.glass-colband--hover {
+  left: var(--col-x, 0);
+  width: var(--col-w, 0);
+  background: rgba(255, 255, 255, 0.055);
+}
+[data-hovercol] .glass-colband--hover {
+  opacity: 1;
+}
+
+.glass-colband--edit {
+  left: var(--edit-x, 0);
+  width: var(--edit-w, 0);
+  background: rgba(198, 181, 255, 0.14);
+}
+[data-editcol] .glass-colband--edit {
+  opacity: 1;
+}
+
+/* Con trỏ bàn phím. Dòng và ô đều nhận nét thật (tabindex), nên bám vào :focus
+   thay vì một class do state vẽ ra — DOM và con trỏ không thể lệch nhau.
+   Ô dùng data-focused: lúc mở sửa, nét nằm ở <input> chứ không ở <span>. */
+.glass-scope .glass-row[data-nav]:focus {
+  background: rgba(198, 181, 255, 0.1);
+  box-shadow: inset 0 0 0 1px var(--g-accent);
+  border-radius: 8px;
+}
+.glass-scope .glass-cell[data-focused] {
+  background: rgba(198, 181, 255, 0.14);
+  box-shadow: inset 0 0 0 1px var(--g-accent);
+  border-radius: 7px;
+}
+
+@keyframes glass-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.glass-expand {
+  animation: glass-expand 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top;
+}
+
+/* Dòng con hiện lần lượt, tạo cảm giác đổ xuống. */
+@keyframes glass-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.glass-row-in {
+  animation: glass-row-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Card kính cho modal. Portal ra ngoài .glass-scope nên tự khai báo lại.
+   Ruột modal (LinesManager, CatalogManager, OrderForm…) dùng utility của app;
+   nhờ `@theme inline`, `bg-surface` biên dịch thành `var(--dm-surface)` — nên
+   chỉ cần ghi đè bảng token ngay tại đây là chúng đổi theo tông kính, không
+   phải sửa từng component. */
+.glass-card {
+  /* Cùng tint và cùng các slider với khối chính, nhưng đặc hơn một bậc: form
+     phải đọc được, và nó nằm chồng lên bảng chứ không phải lên ảnh nền. */
+  background: rgba(var(--g-tint), clamp(0.78, calc(var(--g-opacity) + 0.45), 0.97));
+  backdrop-filter: blur(calc(var(--g-blur) + 8px)) saturate(140%);
+  -webkit-backdrop-filter: blur(calc(var(--g-blur) + 8px)) saturate(140%);
+  border: 1px solid var(--g-line-4);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-poppins), var(--font-sans);
+  color: #fff;
+  color-scheme: dark;
+
+  /* Thanh nút dính đáy form phải che được nội dung cuộn qua bên dưới, nên
+     không thể trong suốt — dùng tint đặc. */
+  --dm-paper: rgba(var(--g-tint), 0.97);
+  --dm-surface: rgba(255, 255, 255, 0.055);
+  --dm-surface-2: rgba(255, 255, 255, 0.1);
+  --dm-ink: #ffffff;
+  --dm-muted: rgba(255, 255, 255, 0.62);
+  --dm-faint: rgba(255, 255, 255, 0.38);
+  --dm-line: rgba(255, 255, 255, 0.14);
+  --dm-hairline: rgba(255, 255, 255, 0.08);
+
+  /* Cyan của app quá chói trên nền tím than — đổi sang tím nhạt của bảng kính. */
+  --dm-brand: #c6b5ff;
+  --dm-brand-fg: #241a3d;
+  --dm-brand-soft: rgba(198, 181, 255, 0.16);
+  --dm-brand-line: rgba(198, 181, 255, 0.45);
+
+  /* Các màu trạng thái hạ bão hoà cho khớp tông. */
+  --dm-ok: #9de5b8;
+  --dm-ok-soft: rgba(157, 229, 184, 0.14);
+  --dm-warn: #ffd79a;
+  --dm-warn-soft: rgba(255, 215, 154, 0.14);
+  --dm-short: #ff9d7a;
+  --dm-short-soft: rgba(255, 157, 122, 0.14);
+
+  --dm-shadow: rgba(0, 0, 0, 0.4);
+  --dm-glow: transparent;
+}
+
+/* Header bảng là `position: sticky` nên buộc phải có nền che dòng cuộn qua.
+   Dùng chính tint của card, gần đục, thay vì `--dm-surface` gần trong suốt. */
+.glass-card .dt thead th {
+  background: rgba(var(--g-tint), 0.97);
+  color: rgba(255, 255, 255, 0.55);
+}
+.glass-card .dt tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Bề mặt lồng trong card (section, input) cần sáng hơn card một chút thì mới
+   tách lớp được — nền card đã gần đục. */
+.glass-card .panel {
+  box-shadow: inset 0 1px 0 0 var(--dm-hairline);
+}
+
+.glass-scope input,
+.glass-scope select,
+.glass-scope button {
+  font-family: inherit;
+  color: #fff;
+}
+.glass-scope input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+/* Menu của <select> do trình duyệt vẽ, lấy màu từ chính thẻ select. Nền của
+   select là màu trong suốt, còn `color-scheme: dark` khiến menu nền tối — nếu
+   không chỉ định màu đặc ở đây thì chữ và nền menu trùng nhau, chỉ đọc được
+   dòng đang rê chuột. */
+.glass-scope select option,
+.glass-card select option {
+  background-color: #241a3d;
+  color: #fff;
+}
+.glass-scope input[type="date"] {
+  color-scheme: dark;
+}
+.glass-scope input[type="range"] {
+  accent-color: var(--g-accent);
+}
+.glass-scope ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.glass-scope ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+}
+.glass-scope ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.glass-scope button:focus-visible,
+.glass-scope input:focus-visible,
+.glass-scope select:focus-visible {
+  outline: 2px solid var(--g-accent);
+  outline-offset: 1px;
 }
 
 /* Thanh cuộn mảnh cho desktop */
 @media (pointer: fine) {
   .thin-scroll {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-line) transparent;
+    scrollbar-color: var(--dm-line) transparent;
   }
   .thin-scroll::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   .thin-scroll::-webkit-scrollbar-thumb {
-    background: var(--color-line);
+    background: var(--dm-line);
     border-radius: 4px;
   }
   .thin-scroll::-webkit-scrollbar-track {
@@ -235,10 +475,10 @@ body {
 }
 
 .panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
+  background: var(--dm-surface);
+  border: 1px solid var(--dm-line);
   box-shadow:
-    inset 0 1px 0 0 var(--color-hairline),
+    inset 0 1px 0 0 var(--dm-hairline),
     0 1px 2px 0 var(--dm-shadow);
 }
 
@@ -247,18 +487,18 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--color-brand);
+  outline: 2px solid var(--dm-brand);
   outline-offset: 2px;
 }
 
 input,
 textarea,
 select {
-  color: var(--color-ink);
+  color: var(--dm-ink);
 }
 input::placeholder,
 textarea::placeholder {
-  color: var(--color-faint);
+  color: var(--dm-faint);
 }
 :root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.8);

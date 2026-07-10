@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;}
+    html,body{margin:0;padding:0;height:100%;font-family:'Poppins',system-ui,sans-serif;}
+    a{color:#c9b8ff;text-decoration:none;}
+    a:hover{color:#e3d9ff;}
+    ::-webkit-scrollbar{width:8px;height:8px;}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:8px;}
+  </style>
+</helmet>
+
+<div style="position:relative;width:100%;min-height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px;">
+
+  <!-- Adjustable PNG background -->
+  <div style="position:absolute;inset:0;z-index:0;">
+    <x-import component-from-global-scope="image-slot" from="./image-slot.js"
+      id="bg-image" shape="rect" fit="cover" src="assets/bg-default.png"
+      placeholder="Drop a PNG background" hint-size="100%,100%"></x-import>
+  </div>
+  <!-- Uploaded background (from settings) -->
+  <div style="position:absolute;inset:0;z-index:0;pointer-events:none;background-size:cover;background-position:center;background-image:{{ bgImg }};"></div>
+  <!-- Darken scrim -->
+  <div style="position:absolute;inset:0;z-index:0;pointer-events:none;background:{{ scrimBg }};"></div>
+
+  <!-- Frosted glass panel holding all content -->
+  <!-- Production table (glass panel) -->
+  <div ref="{{ panelRef }}" style="position:relative;z-index:1;display:flex;flex-direction:column;width:min(1280px,calc(100vw - 96px));height:min(820px,calc(100vh - 96px));overflow:hidden;border-radius:24px;background:rgba(38,28,64,0.42);backdrop-filter:blur(22px) saturate(140%);-webkit-backdrop-filter:blur(22px) saturate(140%);border:1px solid rgba(255,255,255,0.14);box-shadow:0 30px 80px rgba(20,10,50,0.45),inset 0 1px 0 rgba(255,255,255,0.12);padding:26px 30px;">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px;flex-shrink:0;">
+          <span style="font-size:22px;font-weight:600;color:#fff;letter-spacing:-.3px;margin-right:auto;">Danh sách Lệnh sản xuất</span>
+
+          <!-- Search -->
+          <div style="display:flex;align-items:center;gap:9px;width:min(260px,100%);background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:9px 13px;">
+            <div style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.5);flex-shrink:0;"></div>
+            <input type="text" placeholder="Tìm LSX, sản phẩm..." style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:#fff;font-size:13px;font-family:inherit;" />
+          </div>
+
+          <!-- Date filter -->
+          <input type="date" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:9px 12px;color:#fff;font-size:13px;font-family:inherit;outline:none;color-scheme:dark;" />
+
+          <!-- Mục filter -->
+          <select style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:9px 12px;color:#fff;font-size:13px;font-family:inherit;outline:none;">
+            <option style="color:#2a1d4a;">Tất cả mục</option>
+            <option style="color:#2a1d4a;">Gửi may</option>
+            <option style="color:#2a1d4a;">Nhận may</option>
+            <option style="color:#2a1d4a;">Gửi thêu</option>
+            <option style="color:#2a1d4a;">Nhận thêu</option>
+          </select>
+
+          <!-- Số dòng -->
+          <select value="{{ pageSize }}" onChange="{{ onPageSize }}" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:9px 12px;color:#fff;font-size:13px;font-family:inherit;outline:none;">
+            <option value="10" style="color:#2a1d4a;">10 dòng</option>
+            <option value="20" style="color:#2a1d4a;">20 dòng</option>
+            <option value="50" style="color:#2a1d4a;">50 dòng</option>
+          </select>
+
+          <!-- Gear / settings -->
+          <button onClick="{{ toggleSettings }}" title="Tùy chỉnh giao diện" style="width:40px;height:40px;flex-shrink:0;border-radius:12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;font-family:inherit;">⚙</button>
+        </div>
+
+        <!-- Settings popover -->
+        <sc-if value="{{ settingsOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:78px;right:30px;z-index:20;width:288px;background:rgba(28,20,48,0.97);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.14);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,0.5);padding:18px 18px 20px;color:#fff;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+              <span style="font-size:15px;font-weight:600;">Tùy chỉnh giao diện</span>
+              <button onClick="{{ resetSettings }}" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.8);border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit;">Đặt lại</button>
+            </div>
+
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,0.45);margin-bottom:8px;">Nền</div>
+            <label style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(255,255,255,0.07);border:1px dashed rgba(255,255,255,0.2);border-radius:10px;padding:9px;font-size:13px;cursor:pointer;margin-bottom:12px;">
+              <span>⬆ Tải ảnh nền (PNG)</span>
+              <input type="file" accept="image/*" onChange="{{ onBgFile }}" style="display:none;" />
+            </label>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:5px;"><span>Làm tối nền</span><span>{{ scrimPct }}%</span></div>
+            <input type="range" min="0" max="0.7" step="0.02" value="{{ scrimV }}" onInput="{{ setScrim }}" style="width:100%;accent-color:#c6b5ff;margin-bottom:16px;" />
+
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,0.45);margin-bottom:8px;">Khối kính</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:5px;"><span>Độ mờ</span><span>{{ blurV }}px</span></div>
+            <input type="range" min="0" max="50" step="1" value="{{ blurV }}" onInput="{{ setBlur }}" style="width:100%;accent-color:#c6b5ff;margin-bottom:12px;" />
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:5px;"><span>Độ trong</span><span>{{ opPct }}%</span></div>
+            <input type="range" min="0" max="0.9" step="0.02" value="{{ opV }}" onInput="{{ setOpacity }}" style="width:100%;accent-color:#c6b5ff;margin-bottom:14px;" />
+            <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:8px;">Tông màu kính</div>
+            <div style="display:flex;gap:10px;">
+              <sc-for list="{{ tintOptions }}" as="t" hint-placeholder-count="4">
+                <button onClick="{{ t.onClick }}" style="width:38px;height:38px;border-radius:10px;cursor:pointer;background:{{ t.color }};border:{{ t.border }};"></button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="flex:1;overflow:auto;">
+          <div style="min-width:1250px;">
+
+            <!-- Header -->
+            <div style="display:grid;grid-template-columns:28px minmax(150px,1.4fr) 96px 104px 78px repeat(9,46px) 60px minmax(120px,1fr) 52px;gap:8px;padding:12px 0;font-size:14px;font-weight:500;color:rgba(255,255,255,0.92);border-bottom:1px solid rgba(255,255,255,0.14);align-items:end;">
+              <span></span>
+              <span>LSX</span>
+              <span>Chuyền may</span>
+              <span>Mục</span>
+              <span>Phân loại</span>
+              <sc-for list="{{ sizeHeaders }}" as="sh" hint-placeholder-count="9">
+                <span style="text-align:center;font-size:11px;line-height:1.1;">{{ sh }}</span>
+              </sc-for>
+              <span style="text-align:center;">Tổng</span>
+              <span>Note</span>
+              <span></span>
+            </div>
+
+            <!-- Rows -->
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+              <div>
+                <div onClick="{{ r.onToggle }}" style="display:grid;grid-template-columns:28px minmax(150px,1.4fr) 96px 104px 78px repeat(9,46px) 60px minmax(120px,1fr) 52px;gap:8px;padding:13px 0;font-size:14px;color:rgba(255,255,255,0.85);border-bottom:1px solid rgba(255,255,255,0.05);align-items:center;cursor:pointer;">
+                  <span style="display:flex;justify-content:center;color:rgba(255,255,255,0.55);font-size:11px;transform:{{ r.caretRot }};transition:transform .15s;">▶</span>
+                  <span style="display:flex;flex-direction:column;">
+                    <span style="font-weight:600;font-size:15px;color:#fff;">{{ r.lsx }}</span>
+                    <span style="font-size:12px;color:rgba(255,255,255,0.5);">{{ r.product }}</span>
+                  </span>
+                  <span style="color:rgba(255,255,255,0.75);">{{ r.chuyen }}</span>
+                  <span>{{ r.muc }}</span>
+                  <span style="color:rgba(255,255,255,0.75);">{{ r.phanloai }}</span>
+                  <sc-for list="{{ r.sizes }}" as="sz" hint-placeholder-count="9">
+                    <span style="text-align:center;color:{{ sz.color }};">{{ sz.v }}</span>
+                  </sc-for>
+                  <span style="text-align:center;font-weight:700;color:#fff;">{{ r.total }}</span>
+                  <span style="font-size:12px;color:rgba(255,255,255,0.55);">{{ r.note }}</span>
+                  <span style="display:flex;justify-content:center;">
+                    <button onClick="{{ r.onEdit }}" style="width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.14);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;font-family:inherit;" title="Chỉnh sửa">✎</button>
+                  </span>
+                </div>
+                <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+                  <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:14px;margin:4px 0 12px;padding:6px 6px 10px;">
+                    <div style="display:grid;grid-template-columns:28px minmax(150px,1.4fr) 96px 104px 78px repeat(9,46px) 60px minmax(120px,1fr) 52px;gap:8px;padding:9px 0 6px;font-size:11px;color:rgba(198,181,255,0.9);letter-spacing:.4px;text-transform:uppercase;">
+                      <span></span>
+                      <span style="grid-column:span 16;padding-left:28px;">{{ r.childHeader }}</span>
+                    </div>
+                    <sc-for list="{{ r.children }}" as="c" hint-placeholder-count="3">
+                      <div style="display:grid;grid-template-columns:28px minmax(150px,1.4fr) 96px 104px 78px repeat(9,46px) 60px minmax(120px,1fr) 52px;gap:8px;padding:9px 0;font-size:13px;color:rgba(255,255,255,0.75);align-items:center;border-top:1px solid rgba(255,255,255,0.05);">
+                        <span></span>
+                        <span style="grid-column:span 4;padding-left:28px;color:rgba(255,255,255,0.92);">{{ c.label }}</span>
+                        <sc-for list="{{ c.sizes }}" as="cs" hint-placeholder-count="9">
+                          <span style="text-align:center;color:{{ cs.color }};">{{ cs.v }}</span>
+                        </sc-for>
+                        <span style="text-align:center;font-weight:600;color:#fff;">{{ c.total }}</span>
+                        <span style="grid-column:span 2;font-size:12px;color:rgba(255,255,255,0.5);">{{ c.meta }}</span>
+                      </div>
+                    </sc-for>
+                    <!-- Dòng trống để thêm dữ liệu -->
+                    <div style="display:grid;grid-template-columns:28px minmax(150px,1.4fr) 96px 104px 78px repeat(9,46px) 60px minmax(120px,1fr) 52px;gap:8px;padding:8px 0 4px;align-items:center;border-top:1px dashed rgba(255,255,255,0.12);margin-top:2px;">
+                      <span style="display:flex;justify-content:center;color:rgba(198,181,255,0.8);font-size:15px;">+</span>
+                      <input type="text" placeholder="Thêm dòng mới..." style="grid-column:span 4;margin-left:28px;background:rgba(255,255,255,0.05);border:1px dashed rgba(255,255,255,0.18);border-radius:8px;padding:6px 10px;color:#fff;font-size:13px;font-family:inherit;outline:none;" />
+                      <sc-for list="{{ sizeHeaders }}" as="sh" hint-placeholder-count="9">
+                        <input type="text" inputmode="numeric" style="width:100%;text-align:center;background:rgba(255,255,255,0.05);border:1px dashed rgba(255,255,255,0.15);border-radius:7px;padding:6px 2px;color:#fff;font-size:12px;font-family:inherit;outline:none;" />
+                      </sc-for>
+                      <span style="text-align:center;color:rgba(255,255,255,0.35);">—</span>
+                      <input type="text" placeholder="Ghi chú" style="grid-column:span 2;background:rgba(255,255,255,0.05);border:1px dashed rgba(255,255,255,0.15);border-radius:8px;padding:6px 10px;color:#fff;font-size:12px;font-family:inherit;outline:none;" />
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+
+          </div>
+        </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 960},
+  &quot;blurAmount&quot;: {&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:22,&quot;min&quot;:0,&quot;max&quot;:50,&quot;step&quot;:1,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Glass panel&quot;},
+  &quot;panelOpacity&quot;: {&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:0.42,&quot;min&quot;:0,&quot;max&quot;:0.9,&quot;step&quot;:0.02,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Glass panel&quot;},
+  &quot;panelTint&quot;: {&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;38,28,64&quot;,&quot;options&quot;:[&quot;38,28,64&quot;,&quot;20,20,30&quot;,&quot;30,40,70&quot;,&quot;60,30,55&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Glass panel&quot;}
+}">
+class Component extends DCLogic {
+  panelRef = React.createRef();
+  state = { expanded: {}, pageSize: '20', open: false, blur: null, opacity: null, tint: null, scrim: 0, bgUrl: null };
+
+  toggle(i) {
+    this.setState(s => ({ expanded: { ...s.expanded, [i]: !s.expanded[i] } }));
+  }
+
+  applyTweaks() {
+    const el = this.panelRef.current;
+    if (!el) return;
+    const blur = this.state.blur ?? this.props.blurAmount ?? 22;
+    const opacity = this.state.opacity ?? this.props.panelOpacity ?? 0.42;
+    const tint = this.state.tint ?? this.props.panelTint ?? '38,28,64';
+    el.style.backdropFilter = `blur(${blur}px) saturate(140%)`;
+    el.style.webkitBackdropFilter = `blur(${blur}px) saturate(140%)`;
+    el.style.background = `rgba(${tint},${opacity})`;
+  }
+  componentDidMount() { this.applyTweaks(); }
+  componentDidUpdate() { this.applyTweaks(); }
+
+  renderVals() {
+    const sizeHeaders = ['1/XXS','3/XS','S/5','M/7','L/9','XL/11','2XL/13','3XL/15','4XL'];
+    const N = 9;
+    const lit = 'rgba(255,255,255,0.85)', dim = 'rgba(255,255,255,0.25)';
+    const clit = 'rgba(255,255,255,0.7)',  cdim = 'rgba(255,255,255,0.22)';
+
+    const products = ['Áo sơ mi Oxford','Quần âu slim-fit','Áo polo pique','Áo khoác bomber','Quần jogger nỉ','Áo thun cotton','Áo hoodie nỉ','Quần short kaki','Áo khoác gió','Chân váy midi','Áo len cổ lọ','Quần jean skinny'];
+    const chuyens  = ['Chuyền 1','Chuyền 2','Chuyền 3','Chuyền 4','Chuyền 5'];
+    const mucs     = ['Gửi may','Nhận may','Gửi thêu','Nhận thêu'];
+    const notes    = ['Vải trắng, cổ đức','Đen, ống côn','Thêu logo ngực trái','Lót lụa, khóa YKK','Bo gấu, 2 túi','Cổ tròn, regular','Mũ 2 lớp','Kaki co giãn'];
+    const pieces   = ['Đô sau','Tay trước','Tay sau','Bo cổ ngoài','Bo cổ trong','Nẹp áo','Thân trước','Thân sau'];
+    const dates    = ['02/07','04/07','06/07','08/07'];
+    const baseShape = [0,10,42,82,96,62,30,12,4];
+
+    const sum = a => a.reduce((x,y)=>x+(y||0),0);
+    const pad = n => String(n).padStart(2,'0');
+    const sizeCells = (arr, litC, dimC) => arr.map(v => ({ v: v || '—', color: v ? litC : dimC }));
+    const splitInto = (target, parts) => {
+      const res = Array.from({length:parts}, () => Array(N).fill(0));
+      for (let col=0; col<N; col++){
+        let rem = target[col];
+        for (let p=0; p<parts; p++){
+          const give = p===parts-1 ? rem : Math.round(target[col]/parts);
+          const g = Math.max(0, Math.min(give, rem));
+          res[p][col] = g; rem -= g;
+        }
+      }
+      return res;
+    };
+
+    const all = [];
+    for (let i=0; i<24; i++){
+      const muc = mucs[i % 4];
+      const product = products[i % products.length];
+      const chuyen = chuyens[i % chuyens.length];
+      const phanloai = /[Vv]áy/.test(product) ? 'Váy' : (/Quần|jean/.test(product) ? 'Quần' : 'Áo');
+      const note = notes[i % notes.length];
+      const target = baseShape.map((v,j)=> v>0 ? Math.max(0, v + ((i*5 + j*7) % 22) - 10) : 0);
+
+      let children = [], childHeader = '';
+      if (muc === 'Gửi may'){
+        childHeader = 'Chi tiết bán thành phẩm';
+        children = splitInto(target, 4).map((arr, p) => ({
+          label: pieces[(i + p) % pieces.length],
+          sizes: sizeCells(arr, clit, cdim),
+          total: sum(arr),
+          meta: 'Định mức',
+        }));
+      } else {
+        const verb = muc.startsWith('Gửi') ? 'Đã gửi' : 'Đã nhận';
+        childHeader = 'Lịch sử ' + muc.toLowerCase();
+        children = splitInto(target, 3).map((arr, p) => ({
+          label: verb + ' đợt ' + (p+1),
+          sizes: sizeCells(arr, clit, cdim),
+          total: sum(arr),
+          meta: 'Ngày ' + dates[p % dates.length],
+        }));
+      }
+
+      all.push({
+        lsx: 'LSX-24' + pad(i+1),
+        product, chuyen, muc, phanloai, note,
+        total: sum(target),
+        sizes: sizeCells(target, lit, dim),
+        childHeader, children,
+      });
+    }
+
+    const count = parseInt(this.state.pageSize, 10) || 20;
+    const expanded = this.state.expanded;
+    const rows = all.slice(0, count).map((r, i) => ({
+      ...r,
+      open: !!expanded[i],
+      caretRot: expanded[i] ? 'rotate(90deg)' : 'rotate(0deg)',
+      onToggle: () => this.toggle(i),
+      onEdit: (e) => { if (e && e.stopPropagation) e.stopPropagation(); },
+    }));
+
+    const st = this.state;
+    const blurV = st.blur ?? this.props.blurAmount ?? 22;
+    const opV = st.opacity ?? this.props.panelOpacity ?? 0.42;
+    const tintV = st.tint ?? this.props.panelTint ?? '38,28,64';
+    const tintOptions = ['38,28,64','20,20,30','30,40,70','60,30,55'].map(v => ({
+      color: 'rgb(' + v + ')',
+      border: v === tintV ? '2px solid #fff' : '2px solid rgba(255,255,255,0.18)',
+      onClick: () => this.setState({ tint: v }),
+    }));
+
+    return {
+      panelRef: this.panelRef,
+      sizeHeaders,
+      pageSize: this.state.pageSize,
+      onPageSize: (e) => this.setState({ pageSize: e.target.value, expanded: {} }),
+      rows,
+      settingsOpen: st.open,
+      toggleSettings: () => this.setState(s => ({ open: !s.open })),
+      resetSettings: () => this.setState({ blur: null, opacity: null, tint: null, scrim: 0, bgUrl: null }),
+      blurV, opV, opPct: Math.round(opV * 100),
+      scrimV: st.scrim, scrimPct: Math.round(st.scrim * 100),
+      scrimBg: 'rgba(0,0,0,' + st.scrim + ')',
+      bgImg: st.bgUrl ? 'url("' + st.bgUrl + '")' : 'none',
+      tintOptions,
+      setBlur: (e) => this.setState({ blur: parseFloat(e.target.value) }),
+      setOpacity: (e) => this.setState({ opacity: parseFloat(e.target.value) }),
+      setScrim: (e) => this.setState({ scrim: parseFloat(e.target.value) }),
+      onBgFile: (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = () => this.setState({ bgUrl: r.result });
+        r.readAsDataURL(f);
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

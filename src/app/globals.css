@@ -229,8 +229,11 @@ body {
 
 .glass-panel {
   background: rgba(var(--g-tint), var(--g-opacity));
+  /* Chỉ khai thuộc tính chuẩn: viết kèm `-webkit-` y hệt thì trình minify
+     (Lightning CSS) khử trùng lặp, giữ nhầm bản `-webkit-` rồi vứt bản chuẩn —
+     mà Chromium hiện tại đã bỏ alias `-webkit-`, thành ra mất mờ ở bản build.
+     Để Lightning tự thêm tiền tố cho Safari theo browserslist. */
   backdrop-filter: blur(var(--g-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(140%);
   border: 1px solid var(--g-line-4);
   box-shadow:
     0 30px 80px rgba(20, 10, 50, 0.45),
@@ -343,8 +346,8 @@ body {
   /* Cùng tint và cùng các slider với khối chính, nhưng đặc hơn một bậc: form
      phải đọc được, và nó nằm chồng lên bảng chứ không phải lên ảnh nền. */
   background: rgba(var(--g-tint), clamp(0.78, calc(var(--g-opacity) + 0.45), 0.97));
+  /* Chỉ thuộc tính chuẩn — xem ghi chú ở .glass-panel. */
   backdrop-filter: blur(calc(var(--g-blur) + 8px)) saturate(140%);
-  -webkit-backdrop-filter: blur(calc(var(--g-blur) + 8px)) saturate(140%);
   border: 1px solid var(--g-line-4);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   font-family: var(--font-poppins), var(--font-sans);

@@ -9,6 +9,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -1294,15 +1295,54 @@ function AddStageButton({ row }: { row: GridRow }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
-  const ref = useRef<HTMLDivElement>(null);
+  /** Toạ độ theo viewport của menu; null = chưa đo được. */
+  const [at, setAt] = useState<MenuPos | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Menu phải TREO RA `body`, không nằm trong dòng.
+  //
+  // Mỗi `.sheet-row` là một stacking context riêng (z-index: 1), nên z-index của
+  // menu chỉ có nghĩa BÊN TRONG dòng của nó — dòng nào đứng sau trong DOM cũng
+  // vẽ đè lên, dù menu có z-index 30 hay 3000. Mà dòng lại nằm trong vùng cuộn
+  // `overflow: auto`, nên menu còn bị cắt cụt khi dòng ở gần đáy bảng.
+  // Portal + `position: fixed` gỡ cả hai.
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    // Ước lượng chiều cao: tiêu đề + mỗi mục một dòng. Không đủ chỗ bên dưới thì lật lên.
+    const h = 34 + row.missingMucs.length * 30;
+    const below = window.innerHeight - r.bottom;
+    setAt({
+      right: window.innerWidth - r.right,
+      ...(below < h + 8
+        ? { bottom: window.innerHeight - r.top + 4 }
+        : { top: r.bottom + 4 }),
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
+    place();
+
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      // Menu ở ngoài cây DOM của nút, phải hỏi cả hai ref.
+      if (!btnRef.current?.contains(t) && !menuRef.current?.contains(t))
+        setOpen(false);
     };
+    // `fixed` không cuộn theo bảng: cuộn một cái là menu lạc khỏi nút, nên đóng luôn.
+    const onScroll = () => setOpen(false);
+
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (row.missingMucs.length === 0) {
@@ -1323,8 +1363,9 @@ function AddStageButton({ row }: { row: GridRow }) {
     });
 
   return (
-    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+    <>
       <button
+        ref={btnRef}
         title={`Thêm mục cho ${row.code} · ${row.categoryName}`}
         onClick={() => setOpen((v) => !v)}
         disabled={pending}
@@ -1333,64 +1374,71 @@ function AddStageButton({ row }: { row: GridRow }) {
         <Plus size={14} />
       </button>
 
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: 30,
-            right: 0,
-            zIndex: 30,
-            background: "#fff",
-            border: "1px solid var(--s-card-line)",
-            borderRadius: 4,
-            boxShadow: "0 10px 30px rgba(31,42,36,.2)",
-            padding: 5,
-            minWidth: 150,
-            display: "flex",
-            flexDirection: "column",
-            gap: 2,
-          }}
-        >
+      {open &&
+        at &&
+        createPortal(
           <div
+            ref={menuRef}
+            className="sheet-scope"
             style={{
-              fontSize: 10.5,
-              textTransform: "uppercase",
-              letterSpacing: ".4px",
-              color: "var(--s-muted)",
-              padding: "4px 8px 2px",
+              position: "fixed",
+              ...at,
+              zIndex: 60,
+              background: "#fff",
+              border: "1px solid var(--s-card-line)",
+              borderRadius: 4,
+              boxShadow: "0 10px 30px rgba(31,42,36,.2)",
+              padding: 5,
+              minWidth: 150,
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
             }}
           >
-            Thêm mục · {row.categoryName}
-          </div>
-          {row.missingMucs.map((m) => (
-            <button
-              key={m}
-              onClick={() => add(m)}
-              disabled={pending}
+            <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-                background: "none",
-                border: "none",
-                borderRadius: 3,
-                padding: "6px 8px",
-                fontSize: 12.5,
-                textAlign: "left",
-                cursor: pending ? "default" : "pointer",
+                fontSize: 10.5,
+                textTransform: "uppercase",
+                letterSpacing: ".4px",
+                color: "var(--s-muted)",
+                padding: "4px 8px 2px",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#eef5e9")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
             >
-              <Plus size={12} style={{ color: "var(--s-accent)" }} />
-              {MUC_LABEL[m]}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+              Thêm mục · {row.categoryName}
+            </div>
+            {row.missingMucs.map((m) => (
+              <button
+                key={m}
+                onClick={() => add(m)}
+                disabled={pending}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  background: "none",
+                  border: "none",
+                  borderRadius: 3,
+                  padding: "6px 8px",
+                  fontSize: 12.5,
+                  textAlign: "left",
+                  cursor: pending ? "default" : "pointer",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#eef5e9")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+              >
+                <Plus size={12} style={{ color: "var(--s-accent)" }} />
+                {MUC_LABEL[m]}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
+
+/** Neo menu vào nút: luôn canh phải, thả xuống hoặc lật lên tuỳ chỗ trống. */
+type MenuPos = { right: number; top?: number; bottom?: number };
 
 const actionBtn: React.CSSProperties = {
   width: 26,

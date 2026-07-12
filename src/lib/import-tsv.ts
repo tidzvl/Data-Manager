@@ -22,7 +22,47 @@ export const COL = {
   lineName: 53,
   /** Danh sách chi tiết, ngăn bằng dấu phẩy. */
   parts: 69,
+  /** Danh mục (nhóm sản phẩm) — cột cuối cùng có dữ liệu. Lái Mục mặc định. */
+  category: 102,
 } as const;
+
+/**
+ * Danh mục hợp lệ. Cố ý là danh sách đóng: ô này ở sheet từng bị dán hỏng
+ * (một ô nuốt cả trăm tên dính liền), mà dòng hỏng thì lọt vào DB sẽ rất khó gỡ.
+ * Sheet thêm nhóm sản phẩm mới thì phải thêm vào đây, nếu không dòng bị loại.
+ */
+export const PRODUCT_GROUPS = [
+  "Áo bóng đá",
+  "Áo bơi",
+  "Áo chạy bộ",
+  "Áo Jersey",
+  "Áo khoác",
+  "Áo Polo",
+  "Áo thể thao",
+  "Bộ đồ bơi",
+  "Chân váy",
+  "Đội tuyển",
+  "Phụ kiện",
+  "Quần áo bóng đá",
+  "Quần áo bóng rổ",
+  "Quần áo câu lạc bộ",
+  "Quần bóng chuyền",
+  "Quần bóng đá",
+  "Quần bơi",
+  "Quần thể thao",
+] as const;
+
+const GROUP_BY_KEY = new Map(
+  PRODUCT_GROUPS.map((g) => [g.toLowerCase(), g] as const)
+);
+
+/** Trả về tên chuẩn của danh mục, hoặc null nếu trống / không nhận ra. */
+export function normalizeGroup(raw: string): string | null {
+  return GROUP_BY_KEY.get(raw.trim().toLowerCase()) ?? null;
+}
+
+/** Hai nhóm này gia công thêu trước rồi mới may. */
+const EMBROIDERY_GROUPS = new Set(["Đội tuyển", "Quần áo câu lạc bộ"]);
 
 /**
  * Khối cột 41–51 (tổng ở 52) là SỐ LƯỢNG CẮT, thường lớn hơn số đặt hàng vì
@@ -44,6 +84,8 @@ export type ParsedRow = {
   qty: number[];
   total: number;
   parts: string[];
+  /** Danh mục đã chuẩn hoá; null = trống hoặc không nhận ra (dòng sẽ bị loại). */
+  category: string | null;
   /** Có giá trị = dòng bị loại, không import. */
   error?: string;
 };
@@ -86,14 +128,21 @@ function uniq(names: string[]): string[] {
 export function parseTsv(text: string, sizeLabels: string[]): ParsedRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   const seenCodes = new Set<string>();
+  const out: ParsedRow[] = [];
 
-  return lines.map((line, i): ParsedRow => {
+  lines.forEach((line, i) => {
     const cols = line.split("\t");
-    const code = cell(cols, COL.code);
     const productName = cell(cols, COL.productName);
+
+    // Dòng đã xoá tên sản phẩm coi như dòng rác trong sheet: bỏ im lặng, không
+    // báo lỗi và cũng không soi tiếp danh mục — kêu ca về nó chỉ tổ ồn.
+    if (!productName) return;
+
+    const code = cell(cols, COL.code);
     const unitRaw = cell(cols, COL.unit);
     const lineName = cell(cols, COL.lineName);
     const total = int(cell(cols, COL.total));
+    const categoryRaw = cell(cols, COL.category);
 
     const qty = Array.from({ length: SIZE_COL_COUNT }, (_, k) =>
       int(cell(cols, SIZE_COL_START + k))
@@ -120,24 +169,37 @@ export function parseTsv(text: string, sizeLabels: string[]): ParsedRow[] {
       qty,
       total,
       parts,
+      category: normalizeGroup(categoryRaw),
     };
 
-    row.error = validate(row, sum, unitRaw, sizeLabels, seenCodes);
+    row.error = validate(row, sum, unitRaw, categoryRaw, sizeLabels, seenCodes);
     if (!row.error) seenCodes.add(code);
-    return row;
+    out.push(row);
   });
+
+  return out;
 }
 
 function validate(
   row: ParsedRow,
   sum: number,
   unitRaw: string,
+  categoryRaw: string,
   sizeLabels: string[],
   seenCodes: Set<string>
 ): string | undefined {
   if (!row.code) return "Thiếu mã LSX (cột 1).";
   if (seenCodes.has(row.code)) return `Mã "${row.code}" bị lặp trong dữ liệu dán.`;
-  if (!row.productName) return "Thiếu tên sản phẩm (cột 6).";
+
+  if (!row.category) {
+    if (!categoryRaw) return "Thiếu Danh mục (cột 103).";
+    // Ô dán hỏng có thể dài hàng trăm ký tự — cắt bớt, không thì thông báo lỗi
+    // dài hơn cả bảng.
+    const shown =
+      categoryRaw.length > 40 ? `${categoryRaw.slice(0, 40)}…` : categoryRaw;
+    return `Danh mục "${shown}" không có trong danh sách (cột 103).`;
+  }
+
   if (!row.unit)
     return `Đơn vị "${unitRaw || "(trống)"}" không hiểu — chỉ nhận "Cái" hoặc "Bộ".`;
   if (sum === 0) return "Không có số lượng ở size nào (cột 13–23).";
@@ -193,8 +255,14 @@ export type ImportDraft = {
   parts: DraftPart[];
 };
 
-/** Mục mặc định khi vừa dán vào. */
-export const DEFAULT_MUC: Muc = "SEW_IN";
+/**
+ * Mục mặc định khi vừa dán vào, suy từ Danh mục: hàng đội tuyển / câu lạc bộ
+ * phải thêu logo trước rồi mới may, nên bắt đầu ở "Gửi thêu"; còn lại vào thẳng
+ * chuyền may. Vẫn sửa tay được từng dòng trong modal.
+ */
+export function defaultMucFor(category: string | null): Muc {
+  return category && EMBROIDERY_GROUPS.has(category) ? "EMB_OUT" : "SEW_OUT";
+}
 
 /**
  * Dựng nháp từ các dòng đã bóc.
@@ -212,7 +280,7 @@ export function draftsFromRows(rows: ParsedRow[]): ImportDraft[] {
         productName: r.productName,
         lineName: r.lineName,
         categoryName,
-        muc: DEFAULT_MUC,
+        muc: defaultMucFor(r.category),
         qty: [...r.qty],
         parts: r.parts.map((name) => ({ name, qty: [...r.qty] })),
       }))

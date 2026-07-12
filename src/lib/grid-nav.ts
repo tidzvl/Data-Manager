@@ -1,4 +1,4 @@
-// Điều hướng bàn phím của bảng kính, tách hẳn khỏi React để kiểm chứng được.
+// Điều hướng bàn phím của bảng, tách hẳn khỏi React để kiểm chứng được.
 // OrdersGrid render một cây; bàn phím lại cần một danh sách phẳng đúng bằng những
 // gì đang nhìn thấy. `buildNav` làm phép chiếu đó, phần còn lại chỉ là số học
 // trên danh sách ấy.
@@ -6,27 +6,43 @@ import type { GridOrder } from "./grid-types";
 
 export type NavKind = "order" | "parent" | "part" | "batch";
 
+/**
+ * Dòng bị Delete xoá thì xoá cái gì. Hai đích khác nhau đi hai server action
+ * khác nhau, nên phải nói rõ ngay từ đây thay vì để bảng đoán lại theo `kind`.
+ */
+export type NavTarget =
+  | { kind: "stage"; stageId: number; categoryId: number; label: string }
+  | { kind: "batch"; movementId: number; label: string };
+
 export type NavRow = {
   /** Trùng với `data-nav` trên DOM. */
   id: string;
   kind: NavKind;
-  /** Key của GridRow sở hữu dòng này — dùng để tick chọn và xoá. */
+  /** Key của GridRow sở hữu dòng này — để tra ngược về dữ liệu. */
   rowKey: string;
-  /** Chỉ dòng cha mới có checkbox. */
+  /** Tick chọn được, và do đó Delete xoá được. */
   selectable: boolean;
+  /** Delete xoá cái gì; null ở dòng không xoá được (LSX, chi tiết). */
+  target: NavTarget | null;
   expandable: boolean;
   expanded: boolean;
-  /** id của dòng cấp trên; null ở dòng cha. */
+  /** id của dòng cấp trên; null ở dòng LSX. */
   parentId: string | null;
-  /** Ô nào sửa được, theo chỉ số cột size. */
+  /** Ô nào GÕ được, theo chỉ số cột size. Ô không gõ được vẫn ĐI QUA được. */
   editable: boolean[];
 };
 
-/** Con trỏ trỏ theo `id` chứ không theo chỉ số: mở/gập dòng làm chỉ số trượt đi. */
+/**
+ * Con trỏ trỏ theo `id` chứ không theo chỉ số: mở/gập dòng làm chỉ số trượt đi.
+ * `col` = -1 là cột A (tên), 0..n-1 là các cột size.
+ */
 export type Cursor = { id: string; col: number };
 
-/** Con trỏ đứng ở cấp DÒNG, chưa vào ô nào. */
-export const ROW_LEVEL = -1;
+/**
+ * Cột A — ô tên ở mép trái mỗi dòng. Là một ô thật như mọi ô khác: mũi tên đi
+ * qua nó, chỉ có điều gõ số vào thì không được.
+ */
+export const COL_NAME = -1;
 
 /**
  * Chiếu cây đang hiển thị thành danh sách phẳng. Dòng gập lại thì con của nó
@@ -51,9 +67,10 @@ export function buildNav(
       id: order.key,
       kind: "order",
       rowKey: order.key,
-      // SL dự kiến sửa trong form LSX, không sửa ở bảng — nên dòng LSX không có
-      // ô nào nhập được và cũng không có checkbox (tick theo mục).
+      // SL gốc sửa trong form LSX, không sửa ở bảng; và LSX chỉ mất đi khi
+      // phân loại cuối cùng của nó bị xoá, chứ không xoá thẳng từ bảng.
       selectable: false,
+      target: null,
       expandable: order.rows.length > 0,
       expanded: orderOpen,
       parentId: null,
@@ -72,10 +89,19 @@ export function buildNav(
         kind: "parent",
         rowKey: row.key,
         selectable: true,
+        target: {
+          kind: "stage",
+          stageId: row.stageId,
+          categoryId: row.categoryId,
+          label:
+            row.stageId > 0
+              ? `${row.code} · ${row.categoryName} · ${row.mucLabel}`
+              : `${row.code} · ${row.categoryName}`,
+        },
         expandable: row.stageId > 0,
         expanded: open,
         parentId: order.key,
-        // Ô dòng mục là tổng các đợt bên dưới — số suy ra, không nhập thẳng được.
+        // Ô dòng mục là tổng các đợt bên dưới — số suy ra, không gõ thẳng được.
         editable: row.cells.map(() => false),
       });
 
@@ -91,6 +117,7 @@ export function buildNav(
             kind: "part",
             rowKey: row.key,
             selectable: false,
+            target: null,
             expandable: true,
             expanded: partOpen,
             parentId: rowId,
@@ -104,7 +131,8 @@ export function buildNav(
               id: `${partId}/${b.key}`,
               kind: "batch",
               rowKey: row.key,
-              selectable: false,
+              selectable: true,
+              target: { kind: "batch", movementId: b.movementId!, label: b.label },
               expandable: false,
               expanded: false,
               parentId: partId,
@@ -117,7 +145,12 @@ export function buildNav(
             id: `${rowId}/${child.key}`,
             kind: "batch",
             rowKey: row.key,
-            selectable: false,
+            selectable: true,
+            target: {
+              kind: "batch",
+              movementId: child.movementId!,
+              label: child.label,
+            },
             expandable: false,
             expanded: false,
             parentId: rowId,
@@ -139,6 +172,16 @@ export function indexOfRow(nav: NavRow[], id: string): number {
   return nav.findIndex((r) => r.id === id);
 }
 
+export function rowAt(nav: NavRow[], id: string): NavRow | undefined {
+  return nav[indexOfRow(nav, id)];
+}
+
+/** Ô này gõ số vào được không. Cột A thì không bao giờ. */
+export function isEditable(r: NavRow | undefined, col: number): boolean {
+  if (!r || col === COL_NAME) return false;
+  return !!r.editable[col];
+}
+
 export function firstEditableCol(r: NavRow): number {
   return r.editable.indexOf(true);
 }
@@ -147,7 +190,7 @@ export function lastEditableCol(r: NavRow): number {
   return r.editable.lastIndexOf(true);
 }
 
-/** Ô sửa được kề bên trong cùng một dòng; -1 nếu hết. */
+/** Ô GÕ ĐƯỢC kề bên trong cùng một dòng; -1 nếu hết. Chỉ Tab dùng tới. */
 function nextEditableCol(r: NavRow, from: number, dir: 1 | -1): number {
   for (let c = from + dir; c >= 0 && c < r.editable.length; c += dir)
     if (r.editable[c]) return c;
@@ -155,80 +198,50 @@ function nextEditableCol(r: NavRow, from: number, dir: 1 | -1): number {
 }
 
 /**
- * ↑/↓. Trả về null nghĩa là "hết đường, đứng yên".
- *
- * `sticky` = đang mở chế độ sửa. Lúc đó bỏ qua mọi dòng không sửa được ở cột
- * ấy — nhảy vào một ô "—" rồi kẹt lại thì mạch nhập đứt. Còn lúc chỉ duyệt
- * bảng thì đi sang đúng dòng kề: thà tụt về cấp dòng còn hơn âm thầm phóng qua
- * năm dòng.
+ * ↑/↓ — sang đúng dòng kề, giữ nguyên cột, như Excel. Không bỏ qua dòng nào và
+ * không bỏ qua ô chỉ đọc: con trỏ đậu được ở mọi ô, chỉ là gõ vào thì không.
+ * Trả về null nghĩa là "hết bảng, đứng yên".
  */
-export function moveVertical(
-  nav: NavRow[],
-  cur: Cursor,
-  dir: 1 | -1,
-  sticky: boolean
-): Cursor | null {
+export function moveVertical(nav: NavRow[], cur: Cursor, dir: 1 | -1): Cursor | null {
   const i = indexOfRow(nav, cur.id);
   if (i < 0) return null;
 
-  if (cur.col === ROW_LEVEL) {
-    const j = i + dir;
-    return j >= 0 && j < nav.length ? { id: nav[j].id, col: ROW_LEVEL } : null;
-  }
+  const j = i + dir;
+  if (j < 0 || j >= nav.length) return null;
 
-  if (!sticky) {
-    const j = i + dir;
-    if (j < 0 || j >= nav.length) return null;
-    return {
-      id: nav[j].id,
-      col: nav[j].editable[cur.col] ? cur.col : ROW_LEVEL,
-    };
-  }
-
-  for (let j = i + dir; j >= 0 && j < nav.length; j += dir)
-    if (nav[j].editable[cur.col]) return { id: nav[j].id, col: cur.col };
-
-  return null;
+  // Số cột size như nhau ở mọi dòng, nên cột giữ nguyên là luôn hợp lệ.
+  return { id: nav[j].id, col: cur.col };
 }
 
 /**
- * ←/→ bên trong một dòng. Không tràn sang dòng khác — đó là việc của Tab.
- * Hết bên trái thì tụt về cấp dòng; ở cấp dòng thì `→` vào ô đầu tiên.
- * Caller lo phần mở/gập trước khi gọi.
+ * ←/→ — sang ô kề trong cùng một dòng, dừng ở hai mép. Không tràn sang dòng khác
+ * (việc đó của Tab) và không gập/mở gì cả (việc đó của Ctrl+←/→).
  */
-export function moveHorizontal(
-  nav: NavRow[],
-  cur: Cursor,
-  dir: 1 | -1
-): Cursor | null {
-  const r = nav[indexOfRow(nav, cur.id)];
+export function moveHorizontal(nav: NavRow[], cur: Cursor, dir: 1 | -1): Cursor | null {
+  const r = rowAt(nav, cur.id);
   if (!r) return null;
 
-  if (cur.col === ROW_LEVEL) {
-    if (dir < 0) return null;
-    const c = firstEditableCol(r);
-    return c < 0 ? null : { id: r.id, col: c };
-  }
-
-  const c = nextEditableCol(r, cur.col, dir);
-  if (c >= 0) return { id: r.id, col: c };
-  return dir < 0 ? { id: r.id, col: ROW_LEVEL } : null;
+  const col = cur.col + dir;
+  if (col < COL_NAME || col >= r.editable.length) return null;
+  return { id: r.id, col };
 }
 
-/** Tab / Shift+Tab: như ←/→ nhưng hết dòng thì tràn sang dòng kế có ô sửa được. */
-export function moveTab(
-  nav: NavRow[],
-  cur: Cursor,
-  dir: 1 | -1
-): Cursor | null {
+/**
+ * Tab / Shift+Tab — nhảy giữa các ô GÕ ĐƯỢC, tràn sang dòng kế khi hết dòng.
+ *
+ * Cố ý khác mũi tên: đây là lối đi của người đang nhập liệu, không phải của
+ * người đang ngắm bảng. Giống Tab trên một sheet Excel đã khoá ô — nó bỏ qua ô
+ * khoá và đưa thẳng tới chỗ gõ được tiếp theo.
+ */
+export function moveTab(nav: NavRow[], cur: Cursor, dir: 1 | -1): Cursor | null {
   const i = indexOfRow(nav, cur.id);
   if (i < 0) return null;
 
-  if (cur.col !== ROW_LEVEL) {
+  if (cur.col !== COL_NAME) {
     const c = nextEditableCol(nav[i], cur.col, dir);
     if (c >= 0) return { id: nav[i].id, col: c };
   } else if (dir > 0) {
-    // Từ cấp dòng, Tab đi vào ô đầu của chính dòng đó trước.
+    // Từ cột A, Tab vào ô gõ được đầu tiên của chính dòng đó trước.
     const c = firstEditableCol(nav[i]);
     if (c >= 0) return { id: nav[i].id, col: c };
   }
@@ -240,33 +253,39 @@ export function moveTab(
   return null;
 }
 
-/**
- * `←` ở cấp dòng: gập dòng đang mở, còn không thì leo lên dòng cấp trên.
- * Trả về hành động để caller tự quyết cách áp dụng.
- */
+/** Hành động gập/mở; caller tự quyết cách áp dụng. */
 export type RowAction =
   | { kind: "collapse"; id: string }
   | { kind: "expand"; id: string }
   | { kind: "goto"; cursor: Cursor }
   | null;
 
+/**
+ * Ctrl+← — gập dòng đang mở; đã gập rồi (hoặc không gập được) thì leo lên dòng
+ * cấp trên. Giữ nguyên cột: leo cây mà con trỏ nhảy về mép trái thì mất chỗ.
+ */
 export function collapseOrOut(nav: NavRow[], cur: Cursor): RowAction {
-  const r = nav[indexOfRow(nav, cur.id)];
+  const r = rowAt(nav, cur.id);
   if (!r) return null;
   if (r.expandable && r.expanded) return { kind: "collapse", id: r.id };
-  if (r.parentId) return { kind: "goto", cursor: { id: r.parentId, col: ROW_LEVEL } };
+  if (r.parentId) return { kind: "goto", cursor: { id: r.parentId, col: cur.col } };
   return null;
 }
 
+/** Ctrl+→ — mở dòng đang gập; đã mở rồi thì đi vào dòng con đầu tiên. */
 export function expandOrIn(nav: NavRow[], cur: Cursor): RowAction {
-  const r = nav[indexOfRow(nav, cur.id)];
-  if (!r) return null;
-  if (r.expandable && !r.expanded) return { kind: "expand", id: r.id };
-  const next = moveHorizontal(nav, cur, 1);
-  return next ? { kind: "goto", cursor: next } : null;
+  const i = indexOfRow(nav, cur.id);
+  const r = nav[i];
+  if (!r || !r.expandable) return null;
+  if (!r.expanded) return { kind: "expand", id: r.id };
+
+  // Đã mở thì dòng con đầu tiên nằm ngay kế bên trong danh sách phẳng.
+  const child = nav[i + 1];
+  if (child?.parentId !== r.id) return null;
+  return { kind: "goto", cursor: { id: child.id, col: cur.col } };
 }
 
-/** Các rowKey nằm trong dải neo→đầu, chỉ tính dòng có checkbox. */
+/** id của các dòng tick được nằm trong dải neo→đầu. */
 export function selectableRange(
   nav: NavRow[],
   anchorId: string,
@@ -279,7 +298,7 @@ export function selectableRange(
   return nav
     .slice(lo, hi + 1)
     .filter((r) => r.selectable)
-    .map((r) => r.rowKey);
+    .map((r) => r.id);
 }
 
 /**
@@ -294,7 +313,7 @@ export function reanchor(nav: NavRow[], cur: Cursor | null): Cursor | null {
   let id = cur.id;
   while (id.includes("/")) {
     id = id.slice(0, id.lastIndexOf("/"));
-    if (indexOfRow(nav, id) >= 0) return { id, col: ROW_LEVEL };
+    if (indexOfRow(nav, id) >= 0) return { id, col: cur.col };
   }
   return null;
 }

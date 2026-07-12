@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 /** Con trỏ đang nằm trong một ô nhập liệu — phím thuộc về nó, không phải về bảng. */
 export function isTypingTarget(t: EventTarget | null): boolean {
@@ -27,6 +27,21 @@ export function isModalOpen(): boolean {
 /** Phím đơn (n, i, e, x, /, ?) chỉ tính khi không kèm phím bổ trợ nào. */
 export function isPlainKey(e: KeyboardEvent): boolean {
   return !e.ctrlKey && !e.metaKey && !e.altKey;
+}
+
+/**
+ * Bộ gõ tiếng Việt (Unikey, IME của Windows) đang soạn dở một chữ có dấu.
+ *
+ * Lúc ấy phím thuộc về BỘ GÕ, không thuộc về ta: Enter là phím nó dùng để CHỐT
+ * dấu, mũi tên là phím nó dùng để đi trong chữ đang soạn. Cướp mấy phím đó thì
+ * người dùng gõ "đợt" mà dấu bay mất — và với Enter thì còn lưu luôn cả dòng.
+ *
+ * `keyCode === 229` là mã "đang soạn" của các trình duyệt cũ; `isComposing`
+ * mới là đường chính. Hỏi cả hai cho chắc.
+ */
+export function isComposing(e: ReactKeyboardEvent | KeyboardEvent): boolean {
+  const n = "nativeEvent" in e ? e.nativeEvent : e;
+  return n.isComposing || n.keyCode === 229;
 }
 
 /**

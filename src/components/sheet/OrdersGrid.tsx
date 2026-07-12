@@ -50,20 +50,24 @@ import {
 import OrderFormModal from "@/components/forms/OrderFormModal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { SheetProvider } from "@/components/ui/sheet-context";
-import { useHotkeys } from "@/lib/hotkeys";
+import { isComposing, useHotkeys } from "@/lib/hotkeys";
+import { CALC_CHARS, CALC_STRIP, calcQty } from "@/lib/calc";
 import {
-  ROW_LEVEL,
+  COL_NAME,
   buildNav,
   collapseOrOut,
   depthOf,
   expandOrIn,
   indexOfRow,
+  isEditable,
   moveHorizontal,
   moveTab,
   moveVertical,
   reanchor,
+  rowAt,
   selectableRange,
   type Cursor,
+  type NavRow,
 } from "@/lib/grid-nav";
 
 /**
@@ -84,6 +88,11 @@ type NavApi = {
   point: (id: string, col: number) => void;
   open: (id: string, col: number) => void;
   stopEditing: () => void;
+  /**
+   * Có dòng nào đang được tick không. Ô số cần biết để nhường phím Delete: tick
+   * một dòng rồi bấm Delete là muốn xoá DÒNG, dù con trỏ đang đậu ở ô số nào.
+   */
+  hasSelection: boolean;
   /** Dòng "+ Thêm…" nào đang mở; đúng một cái trong cả bảng. */
   addOpen: string | null;
   setAddOpen: (id: string | null) => void;
@@ -99,6 +108,7 @@ const NavCtx = createContext<NavApi>({
   point: () => {},
   open: () => {},
   stopEditing: () => {},
+  hasSelection: false,
   addOpen: null,
   setAddOpen: () => {},
   move: () => false,
@@ -175,9 +185,10 @@ export default function OrdersGrid({
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [openParts, setOpenParts] = useState<Record<string, boolean>>({});
   const [editOrder, setEditOrder] = useState<number | null>(null);
+  /** Dòng được tick, khoá theo id điều hướng — nhiều đợt dùng chung một `rowKey`. */
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   /** Dòng đang chờ xác nhận xoá; null = không có hộp thoại nào. */
-  const [pendingDelete, setPendingDelete] = useState<GridRow[] | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<NavRow[] | null>(null);
   const [deleting, startDelete] = useTransition();
   const [exporting, startExport] = useTransition();
   const router = useRouter();
@@ -195,6 +206,10 @@ export default function OrdersGrid({
   );
 
   const allRows = useMemo(() => orders.flatMap((o) => o.rows), [orders]);
+  const rowByKey = useMemo(
+    () => new Map(allRows.map((r) => [r.key, r])),
+    [allRows]
+  );
 
   // Mở sẵn LSX đầu tiên: bảng mở ra mà mọi thứ đều gập lại thì không thấy được
   // hình dạng của dữ liệu.
@@ -206,7 +221,7 @@ export default function OrdersGrid({
     );
   }, [orders]);
 
-  // Đổi trang / đổi bộ lọc thì bỏ chọn — key cũ không còn ứng với dòng nào.
+  // Đổi trang / đổi bộ lọc thì bỏ chọn — id cũ không còn ứng với dòng nào.
   useEffect(() => {
     setSelected({});
     anchor.current = null;
@@ -222,12 +237,22 @@ export default function OrdersGrid({
     setEditing(false);
   }, [nav, cursor]);
 
-  const selectedRows = allRows.filter((r) => selected[r.key]);
+  /**
+   * Chọn dòng chỉ tính trên những dòng đang HIỆN. Gập một mục lại là bỏ tick các
+   * đợt bên trong nó — số trên thanh "đã chọn" phải luôn đếm đúng những gì mắt
+   * nhìn thấy, chứ không phải một tập ngầm mà bấm Xoá mới lòi ra.
+   */
+  const selectedRows = nav.filter((r) => selected[r.id]);
+  const selectableCount = nav.filter((r) => r.selectable).length;
 
-  /** Dòng giữ chỗ không có mục nào nên không có gì để xuất. */
-  const runExport = (targets: GridRow[]) =>
+  /** Dòng giữ chỗ không có mục nào nên không có gì để xuất; đợt cũng không xuất riêng. */
+  const runExport = (targets: NavRow[]) =>
     startExport(async () => {
-      const stageIds = targets.filter((r) => r.stageId > 0).map((r) => r.stageId);
+      const stageIds = targets
+        .map((r) => r.target)
+        .filter((t) => t?.kind === "stage" && t.stageId > 0)
+        .map((t) => (t as { stageId: number }).stageId);
+
       if (stageIds.length === 0) {
         toast.error("Các dòng đã chọn chưa có mục nào để xuất.");
         return;
@@ -241,24 +266,54 @@ export default function OrdersGrid({
       toast.success(`Đã xuất ${res.rows} dòng ra ${res.fileName}`);
     });
 
-  const runDelete = (targets: GridRow[]) =>
+  const runDelete = (targets: NavRow[]) =>
     startDelete(async () => {
-      // Mỗi dòng là một đích riêng: dòng mục → xoá mục đó; dòng giữ chỗ → xoá
-      // phân loại.
-      const res = await deleteRows(
-        targets.map((r) => ({ stageId: r.stageId, categoryId: r.categoryId }))
+      const stages = targets.filter((r) => r.target?.kind === "stage");
+      // Xoá một mục cuốn theo mọi đợt của nó. Đợt nào nằm dưới một mục cũng đang
+      // bị xoá thì bỏ ra, không thì lượt xoá thứ hai đâm vào bản ghi đã biến mất.
+      const batches = targets.filter(
+        (r) =>
+          r.target?.kind === "batch" &&
+          !stages.some((s) => r.id.startsWith(`${s.id}/`))
       );
+
+      const errors: string[] = [];
+
+      for (const b of batches) {
+        const res = await deleteBatch(
+          (b.target as { movementId: number }).movementId
+        );
+        if (!res.ok) errors.push(res.error ?? "Lỗi khi xoá đợt.");
+      }
+
+      let summary: { stages?: number; categories?: number; orders?: number } | undefined;
+      if (stages.length > 0) {
+        // Mỗi dòng là một đích riêng: dòng mục → xoá mục đó; dòng giữ chỗ → xoá
+        // phân loại.
+        const res = await deleteRows(
+          stages.map((r) => {
+            const t = r.target as { stageId: number; categoryId: number };
+            return { stageId: t.stageId, categoryId: t.categoryId };
+          })
+        );
+        if (res.ok) summary = res.summary;
+        else errors.push(res.error ?? "Lỗi khi xoá.");
+      }
+
       setPendingDelete(null);
-      if (!res.ok) {
-        toast.error(res.error ?? "Lỗi khi xoá.");
+
+      if (errors.length > 0) {
+        toast.error(errors[0]);
+        router.refresh();
         return;
       }
+
       setSelected({});
-      const s = res.summary;
       const parts = [
-        s?.stages ? `${s.stages} mục` : null,
-        s?.categories ? `${s.categories} phân loại` : null,
-        s?.orders ? `${s.orders} LSX rỗng` : null,
+        summary?.stages ? `${summary.stages} mục` : null,
+        summary?.categories ? `${summary.categories} phân loại` : null,
+        summary?.orders ? `${summary.orders} LSX rỗng` : null,
+        batches.length ? `${batches.length} đợt` : null,
       ].filter(Boolean);
       toast.success(`Đã xoá ${parts.join(", ") || "0 dòng"}.`);
       router.refresh();
@@ -321,8 +376,10 @@ export default function OrdersGrid({
       return;
     }
     const row = body.querySelector(`[data-nav="${CSS.escape(cursor.id)}"]`);
+    // Cột A không có phần tử riêng: nét đậu trên chính `.sheet-row`, và CSS kéo
+    // khung ô từ dòng xuống `.sheet-freeze`.
     const el =
-      cursor.col === ROW_LEVEL
+      cursor.col === COL_NAME
         ? (row as HTMLElement | null)
         : row?.querySelector<HTMLElement>(`[data-col="${cursor.col}"]`) ?? null;
 
@@ -339,19 +396,30 @@ export default function OrdersGrid({
       // và hay giật ô lên giữa vùng nhìn.
       el.focus({ preventScroll: true });
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      if (el instanceof HTMLInputElement) el.select();
+
+      if (el instanceof HTMLInputElement) {
+        // Ô mở ra bằng chính một ký tự vừa gõ (`data-seed`) thì ký tự ấy LÀ nội
+        // dung mới — bôi đen nó là ký tự kế tiếp đè mất, gõ "591" chỉ còn "91".
+        // Mở bằng Enter hay bằng chuột thì ngược lại: bôi đen số cũ để gõ đè.
+        if (el.dataset.seed) el.setSelectionRange(el.value.length, el.value.length);
+        else el.select();
+      }
     }
 
-    if (cursor.col !== ROW_LEVEL && placeBand("edit", el))
+    if (cursor.col !== COL_NAME && placeBand("edit", el))
       setAttr("data-editcol", String(cursor.col));
     else setAttr("data-editcol", null);
   }, [cursor, editing, nav, addOpen]);
 
-  /** Dời con trỏ; ra khỏi hàng ô thì đóng luôn chế độ sửa. */
+  /**
+   * Dời con trỏ. Chế độ sửa chỉ theo sang ô mới nếu ô đó GÕ ĐƯỢC — mũi tên giờ
+   * đi qua cả ô chỉ đọc, nên nó phải tự tắt chế độ sửa khi đậu vào một ô như thế
+   * thay vì mở ra một <input> trên con số không sửa được.
+   */
   const goTo = (next: Cursor | null, keepEditing: boolean) => {
     if (!next) return false;
     setCursor(next);
-    setEditing(keepEditing && next.col !== ROW_LEVEL);
+    setEditing(keepEditing && isEditable(rowAt(nav, next.id), next.col));
     return true;
   };
 
@@ -365,7 +433,7 @@ export default function OrdersGrid({
         ? cursor.id === id && cursor.col === col
           ? 0
           : -1
-        : nav[0]?.id === id && col === ROW_LEVEL
+        : nav[0]?.id === id && col === COL_NAME
           ? 0
           : -1,
     point: (id, col) =>
@@ -375,13 +443,14 @@ export default function OrdersGrid({
       setEditing(true);
     },
     stopEditing: () => setEditing(false),
+    hasSelection: selectedRows.length > 0,
     addOpen,
     setAddOpen,
-    move: (dir, sticky) => {
+    move: (dir, keepEditing) => {
       if (!cursor) return false;
       if (dir === "up" || dir === "down") {
         const d = dir === "down" ? 1 : -1;
-        if (goTo(moveVertical(nav, cursor, d, sticky), sticky)) return true;
+        if (goTo(moveVertical(nav, cursor, d), keepEditing)) return true;
         // Hết bảng: đứng yên và đóng chế độ sửa — Enter phải luôn "chốt" ô.
         setEditing(false);
         return false;
@@ -389,7 +458,7 @@ export default function OrdersGrid({
       // Ngang thì hết đường là đứng yên, giữ nguyên chế độ sửa: người dùng chỉ
       // gõ → thêm một nhát ở ô cuối, không có ý bỏ ô.
       const d = dir === "right" ? 1 : -1;
-      return goTo(moveHorizontal(nav, cursor, d), sticky);
+      return goTo(moveHorizontal(nav, cursor, d), keepEditing);
     },
     tab: (dir) => {
       if (!cursor) return false;
@@ -407,6 +476,19 @@ export default function OrdersGrid({
         )
       )
     );
+  };
+
+  /** Xoá dòng: ưu tiên các dòng đã tick, không có thì xoá đúng dòng đang trỏ. */
+  const askDelete = (here: NavRow | undefined) => {
+    if (selectedRows.length > 0) {
+      setPendingDelete(selectedRows);
+      return true;
+    }
+    if (here?.selectable) {
+      setPendingDelete([here]);
+      return true;
+    }
+    return false;
   };
 
   // Bắt phím ở tầng document: người dùng vừa mở trang là gõ được ngay, không
@@ -427,12 +509,45 @@ export default function OrdersGrid({
       return;
     }
 
+    const here = cursor ? rowAt(nav, cursor.id) : undefined;
+
     if (e.ctrlKey || e.metaKey) {
-      if (k === "a" || k === "A")
-        setSelected(Object.fromEntries(allRows.map((r) => [r.key, true])));
-      else if (k === "Delete" || k === "Backspace") {
-        if (selectedRows.length > 0) setPendingDelete(selectedRows);
-      } else return;
+      switch (k) {
+        case "a":
+        case "A":
+          // Chỉ những dòng đang hiện — xem ghi chú ở `selectedRows`.
+          setSelected(
+            Object.fromEntries(
+              nav.filter((r) => r.selectable).map((r) => [r.id, true])
+            )
+          );
+          break;
+
+        case "Delete":
+        case "Backspace":
+          if (!askDelete(here)) return;
+          break;
+
+        // Gập/mở cây. Mũi tên trần giờ dùng để đi giữa các ô nên không kiêm được
+        // việc này nữa; Ctrl+←/→ chạy được ở BẤT KỲ cột nào, không bắt phải lết
+        // con trỏ về cột A trước.
+        case "ArrowLeft":
+        case "ArrowRight": {
+          if (!cursor) return;
+          const act =
+            k === "ArrowRight"
+              ? expandOrIn(nav, cursor)
+              : collapseOrOut(nav, cursor);
+          if (!act) return;
+          if (act.kind === "goto") setCursor(act.cursor);
+          else setOpen(act.id, act.kind === "expand");
+          setEditing(false);
+          break;
+        }
+
+        default:
+          return;
+      }
       e.preventDefault();
       return;
     }
@@ -442,12 +557,10 @@ export default function OrdersGrid({
       // Phím di chuyển đầu tiên thả con trỏ vào bảng.
       if (k !== "ArrowDown" && k !== "ArrowUp" && k !== "Home" && k !== "End")
         return;
-      setCursor({ id: nav[k === "End" ? nav.length - 1 : 0].id, col: ROW_LEVEL });
+      setCursor({ id: nav[k === "End" ? nav.length - 1 : 0].id, col: COL_NAME });
       e.preventDefault();
       return;
     }
-
-    const here = nav[indexOfRow(nav, cursor.id)];
 
     if (e.shiftKey) {
       switch (k) {
@@ -465,10 +578,10 @@ export default function OrdersGrid({
           const j = i + (k === "ArrowDown" ? 1 : -1);
           if (j < 0 || j >= nav.length) return;
           anchor.current ??= cursor.id;
-          setCursor({ id: nav[j].id, col: ROW_LEVEL });
+          setCursor({ id: nav[j].id, col: cursor.col });
           setEditing(false);
-          const keys = selectableRange(nav, anchor.current, nav[j].id);
-          setSelected(Object.fromEntries(keys.map((x) => [x, true])));
+          const ids = selectableRange(nav, anchor.current, nav[j].id);
+          setSelected(Object.fromEntries(ids.map((x) => [x, true])));
           break;
         }
         case "Tab":
@@ -483,32 +596,38 @@ export default function OrdersGrid({
     }
 
     switch (k) {
+      // Mũi tên chỉ làm một việc: đi giữa các ô, qua mọi dòng và mọi ô — kể cả ô
+      // chỉ đọc. Ô chỉ đọc đậu được nhưng không gõ vào được, như ô đã khoá trên
+      // một sheet Excel.
       case "ArrowDown":
       case "ArrowUp":
-        anchor.current = null;
-        api.move(k === "ArrowDown" ? "down" : "up", false);
-        break;
-
+      case "ArrowLeft":
       case "ArrowRight":
-      case "ArrowLeft": {
         anchor.current = null;
-        const right = k === "ArrowRight";
-        if (cursor.col !== ROW_LEVEL) {
-          api.move(right ? "right" : "left", false);
-          break;
-        }
-        const act = right ? expandOrIn(nav, cursor) : collapseOrOut(nav, cursor);
-        if (!act) return;
-        if (act.kind === "goto") setCursor(act.cursor);
-        else setOpen(act.id, act.kind === "expand");
+        api.move(
+          k === "ArrowDown"
+            ? "down"
+            : k === "ArrowUp"
+              ? "up"
+              : k === "ArrowRight"
+                ? "right"
+                : "left",
+          false
+        );
         break;
-      }
 
-      // Ở một ô thì EditCell đã tự mở sửa và chặn phím; tới được đây nghĩa là
-      // con trỏ đang ở cấp dòng.
+      // Ở ô gõ được thì EditCell đã tự mở sửa và chặn phím; tới được đây nghĩa là
+      // con trỏ đang ở cột A hoặc ở một ô chỉ đọc.
       case "Enter":
-        if (cursor.col !== ROW_LEVEL || !here?.expandable) return;
+        if (cursor.col !== COL_NAME || !here?.expandable) return;
         setOpen(here.id, !here.expanded);
+        break;
+
+      // Ô gõ được nuốt Delete để đặt số về 0. Còn ở cột A hay ô chỉ đọc thì Delete
+      // chẳng có số nào để xoá — nên nó xoá cả dòng.
+      case "Delete":
+      case "Backspace":
+        if (!askDelete(here)) return;
         break;
 
       // Thêm đợt / thêm chi tiết, tuỳ dòng đang trỏ. Đứng ở một đợt thì thêm
@@ -519,7 +638,7 @@ export default function OrdersGrid({
         if (!here || here.kind === "order") return;
         const target = here.kind === "batch" ? here.parentId! : here.id;
         // Dòng giữ chỗ chưa có mục nào thì không có gì để thêm vào.
-        if (!nav[indexOfRow(nav, target)]?.expandable) return;
+        if (!rowAt(nav, target)?.expandable) return;
         setOpen(target, true);
         setAddOpen(`add:${target}`);
         break;
@@ -532,9 +651,9 @@ export default function OrdersGrid({
       case " ":
       case "x":
       case "X":
-        // Dòng LSX và dòng con không có checkbox. Vẫn nuốt Space để trang không nhảy.
+        // Dòng LSX và dòng chi tiết không tick được. Vẫn nuốt Space để trang không nhảy.
         if (here?.selectable) {
-          setSelected((s) => ({ ...s, [here.rowKey]: !s[here.rowKey] }));
+          setSelected((s) => ({ ...s, [here.id]: !s[here.id] }));
           anchor.current = here.id;
         } else if (k !== " ") return;
         break;
@@ -544,7 +663,7 @@ export default function OrdersGrid({
         anchor.current = null;
         setCursor({
           id: nav[k === "End" ? nav.length - 1 : 0].id,
-          col: ROW_LEVEL,
+          col: COL_NAME,
         });
         setEditing(false);
         break;
@@ -596,11 +715,17 @@ export default function OrdersGrid({
 
             <Header
               columns={columns}
-              allChecked={allRows.length > 0 && selectedRows.length === allRows.length}
+              allChecked={
+                selectableCount > 0 && selectedRows.length === selectableCount
+              }
               someChecked={selectedRows.length > 0}
               onToggleAll={(on) =>
                 setSelected(
-                  on ? Object.fromEntries(allRows.map((r) => [r.key, true])) : {}
+                  on
+                    ? Object.fromEntries(
+                        nav.filter((r) => r.selectable).map((r) => [r.id, true])
+                      )
+                    : {}
                 )
               }
             />
@@ -627,12 +752,17 @@ export default function OrdersGrid({
                             row={row}
                             navId={rowId}
                             open={open}
-                            checked={!!selected[row.key]}
+                            checked={!!selected[rowId]}
                             onToggle={() => row.stageId > 0 && toggle(rowId, !open)}
                             onCheck={(on) =>
-                              setSelected((s) => ({ ...s, [row.key]: on }))
+                              setSelected((s) => ({ ...s, [rowId]: on }))
                             }
-                            onDelete={() => setPendingDelete([row])}
+                            // Bấm thùng rác của một dòng là nhắm vào ĐÚNG dòng đó,
+                            // dù đang có dòng khác được tick.
+                            onDelete={() => {
+                              const r = rowAt(nav, rowId);
+                              if (r) setPendingDelete([r]);
+                            }}
                           />
 
                           {open && (
@@ -652,17 +782,28 @@ export default function OrdersGrid({
                                           !openParts[`${rowId}/${part.key}`]
                                         )
                                       }
+                                      selected={selected}
+                                      onCheck={(id, on) =>
+                                        setSelected((s) => ({ ...s, [id]: on }))
+                                      }
                                     />
                                   ))
-                                : row.children.map((child) => (
-                                    <BatchRow
-                                      key={child.key}
-                                      navId={`${rowId}/${child.key}`}
-                                      child={child}
-                                      indent={INDENT.batch}
-                                      bg={ROW_BG.batch}
-                                    />
-                                  ))}
+                                : row.children.map((child) => {
+                                    const id = `${rowId}/${child.key}`;
+                                    return (
+                                      <BatchRow
+                                        key={child.key}
+                                        navId={id}
+                                        child={child}
+                                        indent={INDENT.batch}
+                                        bg={ROW_BG.batch}
+                                        checked={!!selected[id]}
+                                        onCheck={(on) =>
+                                          setSelected((s) => ({ ...s, [id]: on }))
+                                        }
+                                      />
+                                    );
+                                  })}
 
                               {row.muc === "SEW_OUT" ? (
                                 <AddPartRow
@@ -694,7 +835,7 @@ export default function OrdersGrid({
         {selectedRows.length > 0 && (
           <SelectionBar
             rowCount={selectedRows.length}
-            exportable={selectedRows.filter((r) => r.stageId > 0).length}
+            exportable={selectedRows.filter(isStageRow).length}
             busy={deleting}
             exporting={exporting}
             onClear={() => setSelected({})}
@@ -717,7 +858,7 @@ export default function OrdersGrid({
             onOpenChange={(v) => !v && setPendingDelete(null)}
             danger
             title={deleteTitle(pendingDelete)}
-            description={describeDelete(pendingDelete)}
+            description={describeDelete(pendingDelete, rowByKey)}
             confirmLabel="Xoá"
             onConfirm={() => pendingDelete && runDelete(pendingDelete)}
           />
@@ -732,32 +873,42 @@ function stageLabel(r: GridRow): string {
   return r.stageId > 0 ? `${r.mucLabel} (${r.categoryName})` : r.categoryName;
 }
 
-/** Nhãn đầy đủ cho hộp thoại xoá: "LSX · Phân loại · Mục". */
-function rowLabel(r: GridRow): string {
-  return r.stageId > 0
-    ? `${r.code} · ${r.categoryName} · ${r.mucLabel}`
-    : `${r.code} · ${r.categoryName} (chưa có mục)`;
+/** Một mục thật (đã có Stage), khác với dòng giữ chỗ của phân loại chưa có mục. */
+function isStageRow(r: NavRow): boolean {
+  return r.target?.kind === "stage" && r.target.stageId > 0;
 }
 
-function deleteTitle(rows: GridRow[] | null): string {
+function isCategoryRow(r: NavRow): boolean {
+  return r.target?.kind === "stage" && r.target.stageId === 0;
+}
+
+function deleteTitle(rows: NavRow[] | null): string {
   if (!rows || rows.length === 0) return "Xoá?";
   if (rows.length > 1) return `Xoá ${rows.length} dòng đã chọn?`;
-  return rows[0].stageId > 0
-    ? `Xoá mục "${rows[0].mucLabel}"?`
-    : `Xoá phân loại "${rows[0].categoryName}"?`;
+
+  const t = rows[0].target;
+  if (t?.kind === "batch") return `Xoá đợt "${t.label}"?`;
+  if (isCategoryRow(rows[0])) return "Xoá phân loại chưa có mục?";
+  return `Xoá mục "${t?.label ?? ""}"?`;
 }
 
 /** Nói rõ cái gì mất và cái gì ở lại — đây là chỗ dễ hiểu nhầm nhất. */
-function describeDelete(rows: GridRow[] | null): string {
+function describeDelete(
+  rows: NavRow[] | null,
+  rowByKey: Map<string, GridRow>
+): string {
   if (!rows || rows.length === 0) return "";
 
-  const labels = rows.map(rowLabel);
+  const labels = rows.map((r) => r.target?.label ?? "");
   const list =
     labels.length <= 3 ? labels.join("; ") : `${labels.slice(0, 3).join("; ")}…`;
 
-  const stageRows = rows.filter((r) => r.stageId > 0);
-  const catRows = rows.filter((r) => r.stageId === 0);
-  const hasSewOut = stageRows.some((r) => r.muc === "SEW_OUT");
+  const stageRows = rows.filter(isStageRow);
+  const catRows = rows.filter(isCategoryRow);
+  const batchRows = rows.filter((r) => r.target?.kind === "batch");
+  const hasSewOut = stageRows.some(
+    (r) => rowByKey.get(r.rowKey)?.muc === "SEW_OUT"
+  );
 
   const what: string[] = [];
   if (stageRows.length > 0) {
@@ -771,6 +922,11 @@ function describeDelete(rows: GridRow[] | null): string {
   if (catRows.length > 0) {
     what.push(
       "Phân loại chưa có mục nào sẽ bị xoá; nếu đó là phân loại cuối cùng thì LSX cũng bị xoá."
+    );
+  }
+  if (batchRows.length > 0) {
+    what.push(
+      `${batchRows.length === 1 ? "Đợt" : `${batchRows.length} đợt`} bị xoá kèm toàn bộ số lượng của nó; mục chứa nó giữ nguyên.`
     );
   }
 
@@ -825,8 +981,9 @@ function SelectionBar({
         boxShadow: "0 10px 30px rgba(31,42,36,.22)",
       }}
     >
+      {/* "dòng" chứ không phải "mục": dải chọn giờ ôm cả đợt lẫn mục. */}
       <span>
-        Đã chọn <b>{rowCount}</b> mục
+        Đã chọn <b>{rowCount}</b> dòng
       </span>
       <button onClick={onClear} style={btn}>
         Bỏ chọn
@@ -857,7 +1014,7 @@ function SelectionBar({
           opacity: busy ? 0.5 : 1,
         }}
       >
-        <Trash2 size={13} /> {busy ? "Đang xoá…" : "Xoá mục đã chọn"}
+        <Trash2 size={13} /> {busy ? "Đang xoá…" : "Xoá dòng đã chọn"}
       </button>
     </div>
   );
@@ -897,7 +1054,7 @@ function Header({
           checked={allChecked}
           indeterminate={someChecked && !allChecked}
           onChange={onToggleAll}
-          label="Chọn tất cả mục"
+          label="Chọn tất cả dòng đang hiện"
         />
         Lệnh SX · Mục · Đợt
       </span>
@@ -1072,10 +1229,10 @@ function OrderRow({
   return (
     <div
       data-nav={navId}
-      tabIndex={nav.tabIndex(navId, ROW_LEVEL)}
-      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)}
+      tabIndex={nav.tabIndex(navId, COL_NAME)}
+      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, COL_NAME)}
       onClick={() => {
-        nav.point(navId, ROW_LEVEL);
+        nav.point(navId, COL_NAME);
         onToggle();
       }}
       className="sheet-row sheet-hover"
@@ -1117,14 +1274,15 @@ function OrderRow({
       </span>
 
       {order.plan.map((v, i) => (
-        <span
+        <ReadCell
           key={i}
-          className="sheet-cell sheet-cell--num"
-          data-col={i}
-          style={{ color: v ? "var(--s-plan)" : "var(--s-dash)" }}
+          rowId={navId}
+          col={i}
+          color={v ? "var(--s-plan)" : "var(--s-dash)"}
+          title="SL gốc của LSX · sửa trong form LSX"
         >
           {v || "–"}
-        </span>
+        </ReadCell>
       ))}
 
       <span
@@ -1209,10 +1367,10 @@ function StageRow({
   return (
     <div
       data-nav={navId}
-      tabIndex={nav.tabIndex(navId, ROW_LEVEL)}
-      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)}
+      tabIndex={nav.tabIndex(navId, COL_NAME)}
+      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, COL_NAME)}
       onClick={() => {
-        nav.point(navId, ROW_LEVEL);
+        nav.point(navId, COL_NAME);
         onToggle();
       }}
       className="sheet-row sheet-hover"
@@ -1245,7 +1403,7 @@ function StageRow({
       <span className="sheet-cell" />
 
       {row.cells.map((c, i) => (
-        <StageCell key={i} cell={c} col={i} />
+        <StageCell key={i} cell={c} col={i} rowId={navId} />
       ))}
 
       <span
@@ -1550,6 +1708,8 @@ function PartBlock({
   columns,
   open,
   onToggle,
+  selected,
+  onCheck,
 }: {
   row: GridRow;
   navId: string;
@@ -1557,18 +1717,20 @@ function PartBlock({
   columns: SizeColumn[];
   open: boolean;
   onToggle: () => void;
+  selected: Record<string, boolean>;
+  onCheck: (id: string, on: boolean) => void;
 }) {
   const nav = useContext(NavCtx);
   return (
     <>
       <div
         data-nav={navId}
-        tabIndex={nav.tabIndex(navId, ROW_LEVEL)}
+        tabIndex={nav.tabIndex(navId, COL_NAME)}
         onFocus={(e) =>
-          e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)
+          e.target === e.currentTarget && nav.point(navId, COL_NAME)
         }
         onClick={() => {
-          nav.point(navId, ROW_LEVEL);
+          nav.point(navId, COL_NAME);
           onToggle();
         }}
         className="sheet-row sheet-hover sheet-expand"
@@ -1623,15 +1785,20 @@ function PartBlock({
 
       {open && (
         <div className="sheet-expand">
-          {(part.batches ?? []).map((b) => (
-            <BatchRow
-              key={b.key}
-              navId={`${navId}/${b.key}`}
-              child={b}
-              indent={INDENT.subBatch}
-              bg={ROW_BG.subBatch}
-            />
-          ))}
+          {(part.batches ?? []).map((b) => {
+            const id = `${navId}/${b.key}`;
+            return (
+              <BatchRow
+                key={b.key}
+                navId={id}
+                child={b}
+                indent={INDENT.subBatch}
+                bg={ROW_BG.subBatch}
+                checked={!!selected[id]}
+                onCheck={(on) => onCheck(id, on)}
+              />
+            );
+          })}
           <AddBatchRow
             row={row}
             columns={columns}
@@ -1652,11 +1819,15 @@ function BatchRow({
   navId,
   indent,
   bg,
+  checked,
+  onCheck,
 }: {
   child: GridChild;
   navId: string;
   indent: number;
   bg: string;
+  checked: boolean;
+  onCheck: (on: boolean) => void;
 }) {
   const router = useRouter();
   const nav = useContext(NavCtx);
@@ -1676,12 +1847,12 @@ function BatchRow({
   return (
     <div
       data-nav={navId}
-      tabIndex={nav.tabIndex(navId, ROW_LEVEL)}
-      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)}
-      onClick={() => nav.point(navId, ROW_LEVEL)}
+      tabIndex={nav.tabIndex(navId, COL_NAME)}
+      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, COL_NAME)}
+      onClick={() => nav.point(navId, COL_NAME)}
       className="sheet-row sheet-hover sheet-expand"
       style={{
-        ["--row-bg" as string]: bg,
+        ["--row-bg" as string]: checked ? "#dbeccf" : bg,
         outline: "none",
         opacity: pending ? 0.4 : 1,
       }}
@@ -1690,7 +1861,15 @@ function BatchRow({
         className="sheet-cell sheet-freeze"
         style={{ gap: 7, paddingLeft: indent }}
       >
-        <span style={{ width: 18, flexShrink: 0 }} />
+        {/* Checkbox đặt ở đúng độ thụt của dòng, như dòng mục — không gióng thành
+            một cột dọc chung, vì cây thụt dần thì cột chung sẽ cắt ngang bậc thang. */}
+        <span onClick={(e) => e.stopPropagation()} style={{ display: "flex" }}>
+          <RowCheckbox
+            checked={checked}
+            onChange={onCheck}
+            label={`Chọn đợt ${child.label}`}
+          />
+        </span>
         <span
           className="truncate"
           style={{ fontWeight: 500, fontSize: 12, color: "var(--s-ink-2)" }}
@@ -1764,12 +1943,63 @@ function BatchRow({
 }
 
 /**
+ * Ô CHỈ ĐỌC nhưng vẫn đậu được con trỏ — tầng LSX và tầng mục.
+ *
+ * Phải có `tabIndex` thật, không thì `focus()` của bảng trượt khỏi nó và con trỏ
+ * âm thầm kẹt lại ở ô cũ: mũi tên phải đi qua được mọi ô, y như một sheet Excel
+ * có ô khoá — đậu được, chỉ là gõ vào thì không.
+ */
+function ReadCell({
+  rowId,
+  col,
+  color,
+  title,
+  children,
+}: {
+  rowId: string;
+  col: number;
+  color: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const nav = useContext(NavCtx);
+  const focused = nav.at(rowId, col);
+
+  return (
+    <span
+      role="button"
+      tabIndex={nav.tabIndex(rowId, col)}
+      className="sheet-cell sheet-cell--num"
+      data-col={col}
+      data-focused={focused || undefined}
+      title={title}
+      // Dòng cha có onClick gập/mở; ô không được kéo theo cả dòng.
+      onClick={(e) => {
+        e.stopPropagation();
+        nav.point(rowId, col);
+      }}
+      style={{ color, cursor: "default", outline: "none" }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
  * Ô của dòng mục: TỔNG CÁC ĐỢT bên dưới, đối chiếu với SL gốc của LSX.
  * Chỉ đọc — muốn đổi số thì sửa ở đúng cái đợt đã tạo ra nó.
  *
  * Xanh = đã đủ gốc, đỏ = còn thiếu, xám = chưa có đợt nào chạm tới size này.
  */
-function StageCell({ cell, col }: { cell: Cell; col: number }) {
+function StageCell({
+  cell,
+  col,
+  rowId,
+}: {
+  cell: Cell;
+  col: number;
+  rowId: string;
+}) {
   const color =
     cell.orderSizeId == null || cell.value === 0
       ? "var(--s-dash)"
@@ -1785,14 +2015,9 @@ function StageCell({ cell, col }: { cell: Cell; col: number }) {
       : undefined;
 
   return (
-    <span
-      className="sheet-cell sheet-cell--num"
-      data-col={col}
-      title={title}
-      style={{ color }}
-    >
+    <ReadCell rowId={rowId} col={col} color={color} title={title}>
       {cell.value || "–"}
-    </span>
+    </ReadCell>
   );
 }
 
@@ -1895,8 +2120,10 @@ function EditCell({
   // Enter vừa lưu vừa dời con trỏ, mà dời con trỏ lại làm ô này blur. Không có
   // cờ này thì cùng một lần gõ ghi xuống DB hai lượt.
   const committed = useRef(false);
-  /** Chữ số vừa gõ để mở ô; đè lên giá trị cũ thay vì nối vào. */
+  /** Ký tự vừa gõ để mở ô; đè lên giá trị cũ thay vì nối vào. */
   const seed = useRef<string | null>(null);
+  /** Lượt sửa này mở ra bằng một ký tự gõ vào — bảng cần biết để đừng bôi đen nó. */
+  const seeded = useRef(false);
 
   const focused = nav.at(rowId, col);
   const editing = focused && nav.editing;
@@ -1916,6 +2143,7 @@ function EditCell({
     if (editing) {
       cancelled.current = false;
       committed.current = false;
+      seeded.current = seed.current != null;
       setDraft(seed.current ?? (cell.value ? String(cell.value) : ""));
       seed.current = null;
     }
@@ -1942,30 +2170,52 @@ function EditCell({
     });
   };
 
-  const commit = () => {
-    if (committed.current || cancelled.current) return;
-    committed.current = true;
+  /**
+   * Chốt ô: tính biểu thức trong nháp rồi lưu kết quả.
+   *
+   * Trả về false khi biểu thức sai — caller phải ĐỨNG YÊN, không dời con trỏ và
+   * không ghi đè số cũ. Người gõ nhầm một dấu ngoặc thì được ở lại đúng ô đó mà
+   * sửa, chứ không bị hất đi kèm theo một con số bậy.
+   */
+  const commit = (): boolean => {
+    if (committed.current || cancelled.current) return true;
 
-    const next = draft.trim() === "" ? 0 : Number(draft);
-    if (!Number.isFinite(next) || next < 0) {
-      toast.error("Số lượng không hợp lệ.");
-      return;
+    const res = calcQty(draft);
+    if (!res.ok) {
+      toast.error(res.error);
+      return false;
     }
-    write(next);
+
+    committed.current = true;
+    write(res.value);
+    return true;
   };
 
   if (editing) {
     return (
       <input
         data-col={col}
-        inputMode="numeric"
+        data-seed={seeded.current ? "1" : undefined}
+        // Không còn `inputMode="numeric"`: bàn phím số của máy tính bảng không có
+        // dấu ngoặc lẫn dấu nhân.
         value={draft}
         className="sheet-cell--input"
         // Dòng cha có onClick mở/gập; không chặn thì bấm vào ô là gập dòng lại.
         onClick={(e) => e.stopPropagation()}
-        onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ""))}
-        onBlur={commit}
+        onChange={(e) => {
+          setDraft(e.target.value.replace(CALC_STRIP, ""));
+          // Gõ thêm sau khi đã chốt (ví dụ bấm → ở ô ngoài cùng phải, không đi
+          // đâu được) là một lượt sửa mới — mở lại cửa cho `commit`.
+          committed.current = false;
+        }}
+        onBlur={() => {
+          commit();
+        }}
         onKeyDown={(e) => {
+          // Bộ gõ đang soạn dấu thì phím là của nó. Ô số hiếm khi gõ tiếng Việt,
+          // nhưng chặn ở đây cho cùng một luật với các ô chữ.
+          if (isComposing(e)) return;
+
           const el = e.currentTarget;
           const collapsed = el.selectionStart === el.selectionEnd;
 
@@ -1978,31 +2228,32 @@ function EditCell({
             // Enter và ↑/↓ luôn chốt ô, kể cả khi không đi đâu được: hết bảng
             // thì lưu rồi đóng chế độ sửa.
             case "Enter":
-              commit();
+              if (!commit()) break;
               nav.move("down", true);
               break;
             case "ArrowUp":
             case "ArrowDown":
-              commit();
+              if (!commit()) break;
               nav.move(e.key === "ArrowUp" ? "up" : "down", true);
               break;
 
             // Hết bảng thì nhả Tab cho trình duyệt, đừng nhốt con trỏ trong ô.
             case "Tab":
+              if (!commit()) break;
               if (!nav.tab(e.shiftKey ? -1 : 1)) return;
-              commit();
               break;
 
-            // Chỉ nhảy khi con trỏ đã ở đầu/cuối ô; cướp phím vô điều kiện thì
-            // không sửa được chữ số ở giữa. Và chỉ lưu khi thật sự rời ô — gõ →
-            // ở ô cuối mà đã chốt thì những gì gõ tiếp sau đó rơi mất.
+            // Chỉ nhảy khi con trỏ chữ đã ở đầu/cuối ô; cướp phím vô điều kiện
+            // thì không sửa được chữ số ở giữa biểu thức.
             case "ArrowLeft":
               if (!collapsed || el.selectionStart !== 0) return;
-              if (nav.move("left", true)) commit();
+              if (!commit()) break;
+              nav.move("left", true);
               break;
             case "ArrowRight":
               if (!collapsed || el.selectionStart !== el.value.length) return;
-              if (nav.move("right", true)) commit();
+              if (!commit()) break;
+              nav.move("right", true);
               break;
 
             default:
@@ -2019,7 +2270,7 @@ function EditCell({
     <span
       role="button"
       tabIndex={nav.tabIndex(rowId, col)}
-      title="Bấm để sửa"
+      title="Bấm để sửa · gõ được cả biểu thức, ví dụ 100+200"
       className="sheet-cell sheet-cell--num"
       data-col={col}
       data-focused={focused || undefined}
@@ -2032,8 +2283,16 @@ function EditCell({
         if (e.ctrlKey || e.metaKey || e.altKey) return;
 
         if (e.key === "Enter") nav.open(rowId, col);
-        else if (e.key === "Delete" || e.key === "Backspace") write(0);
-        else if (e.key.length === 1 && e.key >= "0" && e.key <= "9") {
+        // Ô này GÕ ĐƯỢC, nên Delete ở đây nghĩa là xoá số. TRỪ khi đang có dòng
+        // được tick: tick rồi bấm Delete là muốn xoá dòng, và ý định ấy đã nói ra
+        // rành mạch bằng cái checkbox — nhường phím lên cho bảng.
+        else if (e.key === "Delete" || e.key === "Backspace") {
+          if (nav.hasSelection) return;
+          write(0);
+        }
+        // Mở ô bằng chính ký tự vừa gõ, kể cả "(" hay "-": biểu thức bắt đầu
+        // được ngay mà không phải bấm Enter trước.
+        else if (e.key.length === 1 && CALC_CHARS.test(e.key)) {
           seed.current = e.key;
           nav.open(rowId, col);
         } else return;
@@ -2053,7 +2312,77 @@ function EditCell({
   );
 }
 
-/** Ô nhập số trong các dòng "thêm mới". */
+/**
+ * Bàn phím của một dòng "thêm mới" (đợt mới, chi tiết mới).
+ *
+ * Dòng này KHÔNG nằm trong `nav` — nó là bản nháp, chưa phải một dòng của bảng —
+ * nên con trỏ chung của bảng không với tới được. Nó phải tự lo lấy phím của
+ * mình, và mọi thứ chỉ quẩn quanh trong chính nó: nháp không bao giờ bị bỏ lại
+ * vì con trỏ đi lạc.
+ */
+function addRowKeys(submit: () => void, close: () => void) {
+  return (e: React.KeyboardEvent) => {
+    // Bộ gõ tiếng Việt đang soạn dấu: Enter là phím CHỐT DẤU của nó, không phải
+    // phím lưu của ta. Cướp mất thì gõ "đợt" ra "đot" — và lưu luôn dòng dở dang.
+    if (isComposing(e)) return;
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submit();
+      return;
+    }
+    if (e.key === "Escape") {
+      close();
+      return;
+    }
+
+    const el = e.target as HTMLElement;
+    if (!(el instanceof HTMLInputElement)) return;
+    // Ô ngày tự dùng ←/→ để đi giữa ngày·tháng·năm và ↑/↓ để tăng giảm. Đừng
+    // giành; muốn ra khỏi nó thì dùng Tab.
+    if (el.type === "date") return;
+
+    // ↑/↓ đi thẳng sang ô kề. ←/→ chỉ đi khi con trỏ chữ đã ở mép — không thì
+    // sửa một chữ số ở giữa số cũng bị hất sang ô khác.
+    let dir: 1 | -1;
+    switch (e.key) {
+      case "ArrowUp":
+      case "ArrowLeft":
+        dir = -1;
+        break;
+      case "ArrowDown":
+      case "ArrowRight":
+        dir = 1;
+        break;
+      default:
+        return;
+    }
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const caret = el.selectionStart;
+      if (caret === null || caret !== el.selectionEnd) return;
+      if (dir < 0 ? caret !== 0 : caret !== el.value.length) return;
+    }
+
+    const row = el.closest(".sheet-row");
+    if (!row) return;
+    const inputs = [
+      ...row.querySelectorAll<HTMLInputElement>("input:not([disabled])"),
+    ];
+    const next = inputs[inputs.indexOf(el) + dir];
+    if (!next) return;
+
+    e.preventDefault();
+    next.focus();
+    next.select();
+  };
+}
+
+/**
+ * Ô nhập số trong các dòng "thêm mới". Gõ được biểu thức y như ô của bảng
+ * ("100+200"), và tính ra kết quả lúc lưu — chứ không phải chỉ ô của bảng mới
+ * tính được còn ô nhập mới thì không.
+ */
 function NumInput({
   disabled,
   value,
@@ -2078,17 +2407,56 @@ function NumInput({
       </span>
     );
   }
+
+  // Biểu thức đang gõ dở ("100+") chưa tính được, nhưng đó KHÔNG phải lỗi — chỉ
+  // là chưa xong. Tô đỏ lúc ấy thì cả lúc gõ giữa chừng ô cũng đỏ. Để lúc lưu
+  // mới phán xét; ở đây chỉ nhắc bằng màu khi ô đã có gì đó mà vẫn không tính ra.
+  const bad = value.trim() !== "" && !calcQty(value).ok;
+
   return (
     <input
       autoFocus={autoFocus}
       data-col={col}
-      inputMode="numeric"
+      // Không có `inputMode="numeric"`: bàn phím số của máy bảng thiếu dấu ngoặc
+      // lẫn dấu nhân.
       value={value}
-      onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ""))}
+      onChange={(e) => onChange(e.target.value.replace(CALC_STRIP, ""))}
+      title="Gõ được biểu thức, ví dụ 100+200"
       className="sheet-cell--input"
-      style={{ boxShadow: "inset 0 0 0 1px var(--s-card-line)" }}
+      style={{
+        boxShadow: `inset 0 0 0 1px ${bad ? "var(--s-short)" : "var(--s-card-line)"}`,
+      }}
     />
   );
+}
+
+/**
+ * Tính hết các ô nháp của một dòng "thêm mới".
+ *
+ * Sai một ô là hỏng cả dòng: thà không lưu gì còn hơn lưu một nửa số đúng rồi
+ * để người ta tự đoán nửa còn lại rơi ở đâu. Lỗi nói rõ CỘT NÀO — dòng có cả
+ * chục ô, "biểu thức không hợp lệ" trơ trọi thì biết đi tìm ở đâu.
+ */
+function calcDrafts(
+  qty: string[],
+  columns: SizeColumn[]
+): { ok: true; values: number[] } | { ok: false; error: string } {
+  const values: number[] = [];
+  for (let i = 0; i < qty.length; i++) {
+    const r = calcQty(qty[i] ?? "");
+    if (!r.ok)
+      return { ok: false, error: `Size ${columns[i]?.label ?? i + 1}: ${r.error}` };
+    values.push(r.value);
+  }
+  return { ok: true, values };
+}
+
+/** Tổng tạm hiện ở cột "Tổng" khi đang gõ; ô nào chưa tính ra thì coi như 0. */
+function draftTotal(qty: string[]): number {
+  return qty.reduce((a, v) => {
+    const r = calcQty(v ?? "");
+    return a + (r.ok ? r.value : 0);
+  }, 0);
 }
 
 /** Dòng "＋ Thêm ..." lúc chưa mở — bấm vào mới hiện các ô nhập. */
@@ -2189,8 +2557,15 @@ function AddPartRow({
       toast.error("Nhập tên chi tiết.");
       return;
     }
+
+    const calc = calcDrafts(qty, columns);
+    if (!calc.ok) {
+      toast.error(calc.error);
+      return;
+    }
+
     const targets = row.cells
-      .map((c, i) => ({ orderSizeId: c.orderSizeId, qty: Number(qty[i] || 0) }))
+      .map((c, i) => ({ orderSizeId: c.orderSizeId, qty: calc.values[i] }))
       .filter((t): t is { orderSizeId: number; qty: number } => t.orderSizeId != null);
 
     start(async () => {
@@ -2207,7 +2582,8 @@ function AddPartRow({
     });
   };
 
-  const total = qty.reduce((a, v) => a + (Number(v) || 0), 0);
+  const total = draftTotal(qty);
+  const keys = addRowKeys(submit, close);
 
   return (
     <div
@@ -2216,12 +2592,7 @@ function AddPartRow({
         ["--row-bg" as string]: ROW_BG.part,
         opacity: pending ? 0.5 : 1,
       }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          submit();
-        } else if (e.key === "Escape") close();
-      }}
+      onKeyDown={keys}
     >
       <span
         className="sheet-cell sheet-freeze"
@@ -2323,8 +2694,14 @@ function AddBatchRow({
   }
 
   const submit = () => {
+    const calc = calcDrafts(qty, columns);
+    if (!calc.ok) {
+      toast.error(calc.error);
+      return;
+    }
+
     const quantities = row.cells
-      .map((c, i) => ({ orderSizeId: c.orderSizeId, qty: Number(qty[i] || 0) }))
+      .map((c, i) => ({ orderSizeId: c.orderSizeId, qty: calc.values[i] }))
       .filter((t): t is { orderSizeId: number; qty: number } => t.orderSizeId != null);
 
     start(async () => {
@@ -2344,20 +2721,16 @@ function AddBatchRow({
     });
   };
 
-  const total = qty.reduce((a, v) => a + (Number(v) || 0), 0);
+  const total = draftTotal(qty);
   // Con trỏ nhảy thẳng vào ô số đầu tiên nhập được; ngày đã có sẵn hôm nay.
   const firstEditable = row.cells.findIndex((c) => c.orderSizeId != null);
+  const keys = addRowKeys(submit, close);
 
   return (
     <div
       className="sheet-row sheet-expand"
       style={{ ["--row-bg" as string]: bg, opacity: pending ? 0.5 : 1 }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          submit();
-        } else if (e.key === "Escape") close();
-      }}
+      onKeyDown={keys}
     >
       <span
         className="sheet-cell sheet-freeze"

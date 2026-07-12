@@ -23,7 +23,7 @@ import SheetSettings from "./SheetSettings";
 import SystemModal from "./SystemModal";
 import ImportModal from "./ImportModal";
 import HotkeyHelp from "./HotkeyHelp";
-import { isPlainKey, useHotkeys } from "@/lib/hotkeys";
+import { isComposing, isPlainKey, useHotkeys } from "@/lib/hotkeys";
 import {
   SHEET_DEFAULTS,
   readSheetPrefs,
@@ -332,7 +332,14 @@ const btn: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-/** Ô tìm kiếm có debounce, đẩy vào URL sau khi ngừng gõ. */
+/**
+ * Ô tìm kiếm. Chỉ tìm khi bấm Enter.
+ *
+ * Trước đây gõ tới đâu tìm tới đó (debounce 300ms): mỗi nhịp ngừng tay là một
+ * lượt truy vấn DB rồi render lại cả bảng, gõ "LSX2607020" nghĩa là vài lượt như
+ * thế chồng lên nhau — bảng giật, mà chín phần mười kết quả trên đường đi chẳng
+ * ai đọc. Người dùng biết lúc nào mình gõ xong; để họ nói.
+ */
 function SearchBox({
   initial,
   onCommit,
@@ -343,14 +350,11 @@ function SearchBox({
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const [value, setValue] = useState(initial);
+  // Nút Back / xoá bộ lọc đổi URL — ô phải chạy theo, không thì nó nói một đằng
+  // mà bảng hiện một nẻo.
   useEffect(() => setValue(initial), [initial]);
 
-  useEffect(() => {
-    if (value === initial) return;
-    const t = setTimeout(() => onCommit(value.trim()), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  const dirty = value.trim() !== initial;
 
   return (
     <div style={{ position: "relative", flex: "0 0 300px" }}>
@@ -369,9 +373,50 @@ function SearchBox({
         ref={inputRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          // Bộ gõ tiếng Việt dùng Enter để CHỐT DẤU. Cướp mất thì gõ "Áo" xong
+          // bấm Enter là mất dấu, mà lại còn đi tìm cái tên sai ấy.
+          if (isComposing(e)) return;
+
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCommit(value.trim());
+          } else if (e.key === "Escape") {
+            // Bỏ những gì đang gõ dở, về đúng cái đang tìm. Không nuốt phím:
+            // `useHotkeys` còn nhả nét ra khỏi ô sau đó.
+            setValue(initial);
+          }
+        }}
         placeholder="Tìm LSX, tên... ( / )"
-        style={{ ...control, width: "100%", padding: "7px 10px 7px 28px" }}
+        style={{
+          ...control,
+          width: "100%",
+          padding: `7px ${dirty ? 52 : 10}px 7px 28px`,
+        }}
       />
+
+      {/* Gõ xong mà bảng chưa đổi thì trông như treo — nói thẳng ra là còn thiếu Enter. */}
+      {dirty && (
+        <kbd
+          style={{
+            position: "absolute",
+            right: 8,
+            top: "50%",
+            transform: "translateY(-50%)",
+            pointerEvents: "none",
+            padding: "1px 5px",
+            borderRadius: 3,
+            border: "1px solid var(--s-card-line)",
+            background: "#fff",
+            fontSize: 10,
+            fontFamily: "inherit",
+            color: "var(--s-muted)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Enter ↵
+        </kbd>
+      )}
     </div>
   );
 }

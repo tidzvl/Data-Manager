@@ -44,7 +44,6 @@ import {
   setMovementDate,
   setOrderCreatedAt,
   setPartTarget,
-  setStageTarget,
   type CellResult,
 } from "@/app/actions/grid";
 import OrderFormModal from "@/components/forms/OrderFormModal";
@@ -1184,16 +1183,23 @@ function StageRow({
 }) {
   const nav = useContext(NavCtx);
 
+  // Đích của mọi mục là SL gốc của LSX; `target` của ô đã mang sẵn con số đó.
+  const planTotal = row.cells.reduce((a, c) => a + c.target, 0);
+  const short = row.stageId > 0 && planTotal > 0 && row.total < planTotal;
+
+  const verb = row.muc === "SEW_OUT" || row.muc === "EMB_OUT" ? "gửi" : "nhận";
+  // "Gửi may" mở ra chi tiết, ba mục kia mở thẳng ra đợt.
+  const unit = row.muc === "SEW_OUT" ? "chi tiết" : "đợt";
   const note =
     row.stageId === 0
       ? "Chưa có mục"
-      : row.muc === "SEW_OUT"
-        ? row.children.length
-          ? `${row.children.length} chi tiết`
-          : "Chưa có chi tiết"
-        : row.children.length
-          ? `Đã nhận · ${row.children.length} đợt`
-          : "Chưa nhận";
+      : row.children.length === 0
+        ? row.muc === "SEW_OUT"
+          ? "Chưa có chi tiết"
+          : `Chưa ${verb}`
+        : short
+          ? `Thiếu ${planTotal - row.total} · ${row.children.length} ${unit}`
+          : `Đủ gốc · ${row.children.length} ${unit}`;
 
   return (
     <div
@@ -1233,27 +1239,17 @@ function StageRow({
 
       <span className="sheet-cell" />
 
-      {row.cells.map((c, i) =>
-        row.editableTarget ? (
-          <EditCell
-            key={i}
-            rowId={navId}
-            cell={c}
-            col={i}
-            lit="var(--s-recv)"
-            save={(q) => setStageTarget(row.stageId, c.orderSizeId!, q)}
-          />
-        ) : (
-          <StaticCell key={i} cell={c} col={i} lit="var(--s-recv)" />
-        )
-      )}
+      {row.cells.map((c, i) => (
+        <StageCell key={i} cell={c} col={i} />
+      ))}
 
       <span
         className="sheet-cell sheet-cell--num"
+        title={`Đã ${row.total} / gốc ${planTotal}`}
         style={{
           fontWeight: 700,
-          color: "var(--s-recv)",
-          background: "var(--s-recv-bg)",
+          color: short ? "var(--s-short)" : "var(--s-recv)",
+          background: short ? "var(--s-plan-bg)" : "var(--s-recv-bg)",
         }}
       >
         {row.total || "–"}
@@ -1666,20 +1662,33 @@ function BatchRow({
   );
 }
 
-function StaticCell({
-  cell,
-  col,
-  lit,
-}: {
-  cell: Cell;
-  col: number;
-  lit: string;
-}) {
+/**
+ * Ô của dòng mục: TỔNG CÁC ĐỢT bên dưới, đối chiếu với SL gốc của LSX.
+ * Chỉ đọc — muốn đổi số thì sửa ở đúng cái đợt đã tạo ra nó.
+ *
+ * Xanh = đã đủ gốc, đỏ = còn thiếu, xám = chưa có đợt nào chạm tới size này.
+ */
+function StageCell({ cell, col }: { cell: Cell; col: number }) {
+  const color =
+    cell.orderSizeId == null || cell.value === 0
+      ? "var(--s-dash)"
+      : cell.value < cell.target
+        ? "var(--s-short)"
+        : "var(--s-recv)";
+
+  const title =
+    cell.orderSizeId != null && cell.target > 0
+      ? `Đã ${cell.value} / gốc ${cell.target}${
+          cell.value < cell.target ? ` · còn thiếu ${cell.target - cell.value}` : " · đủ"
+        }`
+      : undefined;
+
   return (
     <span
       className="sheet-cell sheet-cell--num"
       data-col={col}
-      style={{ color: cellColor(cell, lit) }}
+      title={title}
+      style={{ color }}
     >
       {cell.value || "–"}
     </span>

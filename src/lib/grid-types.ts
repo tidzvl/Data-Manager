@@ -22,6 +22,9 @@ export type SizeColumn = { id: number; label: string };
 /**
  * Ô số. `value` là số hiển thị; `done`/`target` chỉ để tô màu thiếu/đủ.
  * `orderSizeId` null nghĩa là phân loại này không khai báo size đó.
+ *
+ * Ở dòng mục, `value` = `done` = tổng các đợt, còn `target` = SL GỐC của LSX:
+ * ô tự nói lên "đã gửi/nhận được bao nhiêu trên tổng phải làm".
  */
 export type Cell = {
   orderSizeId: number | null;
@@ -66,11 +69,6 @@ export type GridRow = {
   categoryName: string;
   muc: MovementType;
   mucLabel: string;
-  /**
-   * "Gửi may" lấy target từ tổng định mức các chi tiết nên ô của dòng cha chỉ
-   * đọc; ba mục kia có target riêng, sửa thẳng trên dòng cha.
-   */
-  editableTarget: boolean;
   /** Các mục chưa có dòng nào của cùng (LSX × phân loại) — để nút "Thêm mục". */
   missingMucs: MovementType[];
   note: string | null;

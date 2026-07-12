@@ -75,10 +75,8 @@ export function buildNav(
         expandable: row.stageId > 0,
         expanded: open,
         parentId: order.key,
-        // "Gửi may" lấy target từ tổng định mức chi tiết nên ô dòng mục chỉ đọc.
-        editable: row.cells.map(
-          (c) => row.editableTarget && c.orderSizeId != null
-        ),
+        // Ô dòng mục là tổng các đợt bên dưới — số suy ra, không nhập thẳng được.
+        editable: row.cells.map(() => false),
       });
 
       if (!open) continue;

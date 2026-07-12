@@ -96,32 +96,7 @@ function tally(order: OrderWithAll) {
 type Category = OrderWithAll["categories"][number];
 type Stage = Category["stages"][number];
 
-/**
- * SL kế hoạch của một công đoạn tại một size — cũng chính là số hiển thị ở ô.
- *
- * "Gửi may" cộng định mức các chi tiết lại, để dòng cha luôn bằng tổng dòng con.
- * Ba mục còn lại đọc thẳng `StageTarget` của chính nó — không suy từ mục trước
- * nữa, vì mỗi mục giờ có kế hoạch riêng do người dùng nhập.
- */
-function targetFor(
-  stage: Stage,
-  cat: Category,
-  orderSizeId: number
-): number {
-  if (stage.type === "SEW_OUT") {
-    return sum(
-      cat.parts.map(
-        (p) =>
-          p.targets.find((x) => x.orderSizeId === orderSizeId)?.targetQty ?? 0
-      )
-    );
-  }
-  return (
-    stage.targets.find((x) => x.orderSizeId === orderSizeId)?.targetQty ?? 0
-  );
-}
-
-/** Số thực tế đã gửi/nhận, chỉ dùng để tô màu thiếu/đủ. */
+/** Số thực tế đã gửi/nhận của một mục tại một size — chính là số hiển thị ở ô. */
 function doneFor(
   muc: MovementType,
   orderSizeId: number,
@@ -186,7 +161,11 @@ function batchRows(
     });
 }
 
-function buildRows(order: OrderWithAll, cols: SizeColumn[]): GridRow[] {
+function buildRows(
+  order: OrderWithAll,
+  cols: SizeColumn[],
+  plan: number[]
+): GridRow[] {
   const t = tally(order);
   const rows: GridRow[] = [];
 
@@ -205,16 +184,19 @@ function buildRows(order: OrderWithAll, cols: SizeColumn[]): GridRow[] {
 
     for (const stage of stages) {
       const muc = stage.type;
-      const cells = cols.map<Cell>((c) => {
+      const cells = cols.map<Cell>((c, i) => {
         const osid = sizeByLabel.get(c.label) ?? null;
         if (!osid) return { orderSizeId: null, value: 0, done: 0, target: 0 };
-        const target = targetFor(stage, cat, osid);
+        // Ô hiện TỔNG CÁC ĐỢT của mục này — số thật đã gửi/nhận, để đối chiếu
+        // thẳng với SL gốc ở dòng LSX ngay phía trên. Không còn là SL kế hoạch
+        // riêng của mục nữa (StageTarget không lên bảng).
+        const done = doneFor(muc, osid, t);
         return {
           orderSizeId: osid,
-          // Ô hiện KẾ HOẠCH; số thực tế nằm ở các đợt bên trong và chỉ dùng để tô màu.
-          value: target,
-          done: doneFor(muc, osid, t),
-          target,
+          value: done,
+          done,
+          // Đích để so là SL GỐC của LSX, không phải kế hoạch riêng của mục.
+          target: plan[i],
         };
       });
 
@@ -278,7 +260,6 @@ function buildRows(order: OrderWithAll, cols: SizeColumn[]): GridRow[] {
         categoryName: cat.name,
         muc,
         mucLabel: MUC_LABEL[muc],
-        editableTarget: muc !== "SEW_OUT",
         missingMucs,
         note: order.note,
         createdAt: fullDayLabel(order.createdAt),
@@ -321,7 +302,6 @@ function emptyCategoryRow(
     categoryName: cat.name,
     muc: "SEW_OUT",
     mucLabel: "—",
-    editableTarget: false,
     missingMucs,
     note: order.note,
     createdAt: fullDayLabel(order.createdAt),
@@ -339,17 +319,20 @@ function emptyCategoryRow(
 }
 
 /**
- * SL dự kiến của cả LSX theo từng cột size.
+ * SL GỐC của LSX theo từng cột size — con số kế hoạch mà mọi mục phải đạt tới.
  *
- * Cột là nhãn size dùng chung, còn `OrderSize` lại thuộc về từng phân loại — nên
- * một cột có thể gom nhiều phân loại lại. Cộng chúng vào nhau; phân loại nào
- * không khai báo size đó thì đơn giản là không đóng góp gì.
+ * KHÔNG cộng các phân loại lại. Một LSX bộ đồ có "Áo" và "Quần" là hai phân loại
+ * của CÙNG 200 bộ, không phải 400 sản phẩm; cộng vào là nhân đôi kế hoạch. Lấy
+ * max: các phân loại vốn khai cùng một số, và nếu có lệch thì gốc là cái lớn nhất.
  */
 function planFor(order: OrderWithAll, cols: SizeColumn[]): number[] {
   const byLabel = new Map<string, number>();
   for (const cat of order.categories)
     for (const s of cat.orderSizes)
-      byLabel.set(s.sizeLabel, (byLabel.get(s.sizeLabel) ?? 0) + s.targetQty);
+      byLabel.set(
+        s.sizeLabel,
+        Math.max(byLabel.get(s.sizeLabel) ?? 0, s.targetQty)
+      );
 
   return cols.map((c) => byLabel.get(c.label) ?? 0);
 }
@@ -357,9 +340,9 @@ function planFor(order: OrderWithAll, cols: SizeColumn[]): number[] {
 function buildOrder(
   order: OrderWithAll,
   cols: SizeColumn[],
+  plan: number[],
   rows: GridRow[]
 ): GridOrder {
-  const plan = planFor(order, cols);
   return {
     key: `order-${order.id}`,
     orderId: order.id,
@@ -448,7 +431,10 @@ export async function getGridPage(
   // Lọc theo mục xong mới gói vào LSX: LSX nào không còn mục nào khớp thì
   // không có gì để xem, bỏ hẳn khỏi bảng thay vì hiện một dòng cha rỗng.
   const nodes = orders
-    .map((o) => buildOrder(o, columns, applyMucFilter(buildRows(o, columns), opts.muc)))
+    .map((o) => {
+      const plan = planFor(o, columns);
+      return buildOrder(o, columns, plan, applyMucFilter(buildRows(o, columns, plan), opts.muc));
+    })
     .filter((o) => !opts.muc || o.rows.length > 0);
 
   return {
@@ -477,7 +463,7 @@ export async function getGridExport(
   });
 
   const rows = applyMucFilter(
-    orders.flatMap((o) => buildRows(o, columns)),
+    orders.flatMap((o) => buildRows(o, columns, planFor(o, columns))),
     opts.muc
   ).filter((r) => r.stageId > 0);
 
@@ -499,7 +485,7 @@ export async function getGridRowsByStages(
 
   const wanted = new Set(stageIds);
   const rows = orders
-    .flatMap((o) => buildRows(o, columns))
+    .flatMap((o) => buildRows(o, columns, planFor(o, columns)))
     .filter((r) => wanted.has(r.stageId));
 
   return { columns, rows };

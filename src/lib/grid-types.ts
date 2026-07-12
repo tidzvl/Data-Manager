@@ -85,9 +85,36 @@ export type GridRow = {
   childHeader: string;
 };
 
+/**
+ * Tầng 1 của bảng — một LSX. Trước đây LSX chỉ là mấy cột lặp lại trên mỗi dòng
+ * mục; giờ nó là một dòng thật, và các mục nằm bên trong nó.
+ *
+ * `plan` là SL DỰ KIẾN của cả LSX (tổng `OrderSize.targetQty` của mọi phân loại
+ * theo từng nhãn size), chỉ đọc ở bảng — sửa trong form LSX. Vì thế ô của nó
+ * không có `orderSizeId`: một cột size có thể gộp nhiều phân loại, không quy về
+ * một bản ghi OrderSize nào cả.
+ */
+export type GridOrder = {
+  key: string;
+  orderId: number;
+  code: string;
+  productName: string;
+  lineName: string | null;
+  note: string | null;
+  /** dd/mm/yyyy */
+  createdAt: string;
+  createdAtIso: string;
+  plan: number[];
+  planTotal: number;
+  /** Các mục (LSX × phân loại × mục) thuộc LSX này. */
+  rows: GridRow[];
+};
+
 export type GridPage = {
   columns: SizeColumn[];
-  rows: GridRow[];
+  orders: GridOrder[];
+  /** Số dòng mục đang hiện — cho chân bảng. */
+  rowCount: number;
   /** Tổng số LSX khớp bộ lọc (phân trang theo LSX, không theo dòng). */
   total: number;
   page: number;

@@ -24,7 +24,7 @@ type Data = {
  * Toàn bộ trang Cài đặt cũ, gom vào một modal mở từ nút bánh răng — desktop
  * không còn điều hướng sang route riêng nữa.
  */
-export default function GlassSystemModal({
+export default function SystemModal({
   open,
   onOpenChange,
 }: {
@@ -54,7 +54,7 @@ export default function GlassSystemModal({
     <FormModal
       open={open}
       onOpenChange={onOpenChange}
-      glass
+      sheet
       title="Cài đặt"
       description="Chuyền may, danh mục dùng chung và mật khẩu."
     >

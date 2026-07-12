@@ -30,6 +30,7 @@ import {
   MUC_LABEL,
   type Cell,
   type GridChild,
+  type GridOrder,
   type GridRow,
   type SizeColumn,
 } from "@/lib/grid-types";
@@ -48,12 +49,13 @@ import {
 } from "@/app/actions/grid";
 import OrderFormModal from "@/components/forms/OrderFormModal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
-import { GlassProvider } from "@/components/ui/glass-context";
+import { SheetProvider } from "@/components/ui/sheet-context";
 import { useHotkeys } from "@/lib/hotkeys";
 import {
   ROW_LEVEL,
   buildNav,
   collapseOrOut,
+  depthOf,
   expandOrIn,
   indexOfRow,
   moveHorizontal,
@@ -65,19 +67,21 @@ import {
 } from "@/lib/grid-nav";
 
 /**
+ * Bảng LSX kiểu bảng tính, ba tầng: LSX → Mục (Phân loại) → Đợt nhận.
+ * Riêng "Gửi may" chèn thêm một tầng chi tiết bán thành phẩm giữa mục và đợt,
+ * vì định mức của nó khai theo từng chi tiết chứ không theo cả mục.
+ */
+
+/**
  * Con trỏ bàn phím. Ô tự hỏi "tôi có đang được trỏ không" thay vì bảng phải
  * biết từng ô; và mọi lệnh di chuyển đều đi qua đây nên `EditCell` không cần
  * biết gì về hình dạng của bảng.
  */
 type NavApi = {
-  /** Con trỏ đang đúng ở ô này. */
   at: (id: string, col: number) => boolean;
-  /** Ô đang được trỏ có đang mở chế độ sửa không. */
   editing: boolean;
   tabIndex: (id: string, col: number) => 0 | -1;
-  /** Dời con trỏ, không mở sửa. */
   point: (id: string, col: number) => void;
-  /** Dời con trỏ và mở sửa (chuột bấm vào ô, hoặc gõ thẳng một chữ số). */
   open: (id: string, col: number) => void;
   stopEditing: () => void;
   /** Dòng "+ Thêm…" nào đang mở; đúng một cái trong cả bảng. */
@@ -101,23 +105,35 @@ const NavCtx = createContext<NavApi>({
   tab: () => false,
 });
 
-/** Dải sáng chạy suốt chiều cao, đặt trong mọi vùng có dòng (header + thân). */
+/** Thụt đầu dòng của cột A theo tầng. */
+const INDENT = { order: 12, stage: 34, part: 58, batch: 58, subBatch: 82 };
+
+/** Nền của dòng theo tầng — xem ghi chú `--row-bg` trong globals.css. */
+const ROW_BG = {
+  order: "var(--s-card)",
+  stage: "var(--s-band-2)",
+  part: "var(--s-band-3)",
+  batch: "var(--s-band-3)",
+  subBatch: "var(--s-band-4)",
+};
+
+/** Dải sáng chạy suốt chiều cao, nằm trên các dòng (dòng ở đây có nền đục). */
 function ColumnBands() {
   return (
     <>
-      <div className="glass-colband glass-colband--hover" />
-      <div className="glass-colband glass-colband--edit" />
+      <div className="sheet-colband sheet-colband--hover" />
+      <div className="sheet-colband sheet-colband--edit" />
     </>
   );
 }
 
 /**
  * Toạ độ của một ô trong hệ quy chiếu nội dung bảng.
- * Đo theo `.glass-row` cha chứ không theo viewport: hàng luôn bắt đầu đúng ở
+ * Đo theo `.sheet-row` cha chứ không theo viewport: hàng luôn bắt đầu đúng ở
  * mép trái vùng nội dung, nên số đo không đổi khi cuộn ngang.
  */
 function measureCell(cell: Element): { x: number; w: number } | null {
-  const row = cell.closest(".glass-row");
+  const row = cell.closest(".sheet-row");
   if (!row) return null;
   const c = cell.getBoundingClientRect();
   const r = row.getBoundingClientRect();
@@ -131,43 +147,31 @@ function today(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-type Tone = "lit" | "dim" | "short";
-
 /**
- * Ô đủ định mức → chữ trắng; thiếu → cam đỏ; không có số / phân loại không khai
- * báo size này → mờ.
+ * Ô chưa đủ định mức → đỏ; không có số / phân loại không khai báo size này →
+ * xám nhạt; còn lại giữ màu của tầng.
  */
-function toneOf(c: Cell): Tone {
-  if (c.orderSizeId == null) return "dim";
-  if (c.target > 0 && c.done < c.target) return "short";
-  if (c.value === 0) return "dim";
-  return "lit";
+function cellColor(c: Cell, lit: string): string {
+  if (c.orderSizeId == null) return "var(--s-dash)";
+  if (c.target > 0 && c.done < c.target) return "var(--s-short)";
+  if (c.value === 0) return "var(--s-dash)";
+  return lit;
 }
 
-const TONE_COLOR: Record<Tone, string> = {
-  lit: "rgba(255,255,255,0.85)",
-  dim: "var(--g-dim)",
-  short: "var(--g-short)",
-};
-
-/** Nhãn cột trải dài từ LSX tới Phân loại. */
-const LABEL_SPAN = 4;
-
-export default function LsxGrid({
-  rows,
+export default function OrdersGrid({
+  orders,
   columns,
 }: {
-  rows: GridRow[];
+  orders: GridOrder[];
   columns: SizeColumn[];
 }) {
   const n = columns.length;
-  // Cột size co giãn (không cố định 46px): nếu chỉ LSX và Ghi chú hút chỗ dư thì
-  // khi khối kính rộng, cụm size bị đẩy sang phải và giữa bảng hở một mảng lớn.
-  const gridCols = `32px 28px minmax(160px,1.2fr) 110px 104px 92px repeat(${n},minmax(46px,0.4fr)) 60px 96px minmax(120px,1fr) 116px`;
-  // 6 cột đầu + 4 cột cuối = 918px, cộng bề rộng TỐI THIỂU của cột size và gap.
-  // Cột cuối 116px = 3 nút 32px + 2 khoảng 6px + đệm.
-  const minWidth = 918 + n * 46 + (n + 9) * 8;
+  // Cột size co giãn: khi bảng rộng hơn nội dung, phần dư chia đều cho cụm size
+  // thay vì dồn hết vào Ghi chú và để giữa bảng hở một mảng lớn.
+  const gridCols = `330px 118px repeat(${n},minmax(56px,0.5fr)) 82px 100px minmax(150px,1fr) 108px`;
+  const minWidth = 888 + n * 56;
 
+  const [openOrders, setOpenOrders] = useState<Record<string, boolean>>({});
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [openParts, setOpenParts] = useState<Record<string, boolean>>({});
   const [editOrder, setEditOrder] = useState<number | null>(null);
@@ -180,22 +184,33 @@ export default function LsxGrid({
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [editing, setEditing] = useState(false);
-  /** `add:<id dòng chứa>`; chỉ một dòng nhập mới mở tại một thời điểm. */
   const [addOpen, setAddOpen] = useState<string | null>(null);
   /** Neo của dải Shift+↑/↓; đặt lại mỗi khi tick bằng Space. */
   const anchor = useRef<string | null>(null);
 
   /** Đúng những dòng đang nhìn thấy, đã trải phẳng. */
   const nav = useMemo(
-    () => buildNav(rows, openRows, openParts),
-    [rows, openRows, openParts]
+    () => buildNav(orders, openOrders, openRows, openParts),
+    [orders, openOrders, openRows, openParts]
   );
+
+  const allRows = useMemo(() => orders.flatMap((o) => o.rows), [orders]);
+
+  // Mở sẵn LSX đầu tiên: bảng mở ra mà mọi thứ đều gập lại thì không thấy được
+  // hình dạng của dữ liệu.
+  useEffect(() => {
+    setOpenOrders((s) =>
+      Object.keys(s).length > 0 || orders.length === 0
+        ? s
+        : { [orders[0].key]: true }
+    );
+  }, [orders]);
 
   // Đổi trang / đổi bộ lọc thì bỏ chọn — key cũ không còn ứng với dòng nào.
   useEffect(() => {
     setSelected({});
     anchor.current = null;
-  }, [rows]);
+  }, [orders]);
 
   // Gập một dòng có thể nuốt mất dòng đang trỏ. Kéo con trỏ về tổ tiên gần nhất
   // còn hiện, chứ đừng để nó trỏ vào hư không.
@@ -207,7 +222,7 @@ export default function LsxGrid({
     setEditing(false);
   }, [nav, cursor]);
 
-  const selectedRows = rows.filter((r) => selected[r.key]);
+  const selectedRows = allRows.filter((r) => selected[r.key]);
 
   /** Dòng giữ chỗ không có mục nào nên không có gì để xuất. */
   const runExport = (targets: GridRow[]) =>
@@ -229,7 +244,7 @@ export default function LsxGrid({
   const runDelete = (targets: GridRow[]) =>
     startDelete(async () => {
       // Mỗi dòng là một đích riêng: dòng mục → xoá mục đó; dòng giữ chỗ → xoá
-      // phân loại. Không gom về LSX nữa.
+      // phân loại.
       const res = await deleteRows(
         targets.map((r) => ({ stageId: r.stageId, categoryId: r.categoryId }))
       );
@@ -250,26 +265,7 @@ export default function LsxGrid({
     });
 
   const scopeRef = useRef<HTMLDivElement>(null);
-  const headRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
-  /** Bề rộng thanh cuộn dọc của vùng thân — header phải chừa đúng bấy nhiêu. */
-  const [gutter, setGutter] = useState(0);
-
-  // Header nằm ngoài vùng cuộn nên không có thanh cuộn dọc; nếu không chừa chỗ
-  // thì các cột lệch nhau đúng bằng bề rộng thanh cuộn.
-  useEffect(() => {
-    const body = bodyRef.current;
-    const inner = innerRef.current;
-    if (!body || !inner) return;
-
-    const measure = () => setGutter(body.offsetWidth - body.clientWidth);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(body);
-    ro.observe(inner); // đóng/mở dòng làm thanh cuộn xuất hiện rồi biến mất
-    return () => ro.disconnect();
-  }, []);
 
   const setAttr = (name: string, value: string | null) => {
     const el = scopeRef.current;
@@ -299,8 +295,14 @@ export default function LsxGrid({
     setAttr("data-hovercol", cell.getAttribute("data-col"));
   };
 
-  const toggleRow = (k: string) => setOpenRows((s) => ({ ...s, [k]: !s[k] }));
-  const togglePart = (k: string) => setOpenParts((s) => ({ ...s, [k]: !s[k] }));
+  /** Cấp của id quyết định nó nằm ở bảng `open*` nào. */
+  const setOpen = (id: string, on: boolean) => {
+    const d = depthOf(id);
+    if (d === 0) setOpenOrders((s) => ({ ...s, [id]: on }));
+    else if (d === 1) setOpenRows((s) => ({ ...s, [id]: on }));
+    else setOpenParts((s) => ({ ...s, [id]: on }));
+  };
+  const toggle = (id: string, on: boolean) => setOpen(id, on);
 
   /**
    * Con trỏ là nguồn sự thật duy nhất; DOM chạy theo nó. Lấy nét ở đây (chứ
@@ -318,7 +320,6 @@ export default function LsxGrid({
       setAttr("data-editcol", null);
       return;
     }
-    // Tìm trong thân bảng thôi: header cũng mang `data-col`.
     const row = body.querySelector(`[data-nav="${CSS.escape(cursor.id)}"]`);
     const el =
       cursor.col === ROW_LEVEL
@@ -344,7 +345,6 @@ export default function LsxGrid({
     if (cursor.col !== ROW_LEVEL && placeBand("edit", el))
       setAttr("data-editcol", String(cursor.col));
     else setAttr("data-editcol", null);
-    // `addOpen` có trong deps để lúc đóng dòng nhập, nét quay về ô đang trỏ.
   }, [cursor, editing, nav, addOpen]);
 
   /** Dời con trỏ; ra khỏi hàng ô thì đóng luôn chế độ sửa. */
@@ -397,11 +397,17 @@ export default function LsxGrid({
     },
   };
 
-  /** id có dấu "/" là dòng chi tiết; còn lại là dòng cha. */
-  const setOpen = (id: string, on: boolean) =>
-    id.includes("/")
-      ? setOpenParts((s) => ({ ...s, [id]: on }))
-      : setOpenRows((s) => ({ ...s, [id]: on }));
+  /** Mở/gập toàn bộ — Shift+→ / Shift+←. */
+  const expandAll = () => {
+    setOpenOrders(Object.fromEntries(orders.map((o) => [o.key, true])));
+    setOpenRows(
+      Object.fromEntries(
+        orders.flatMap((o) =>
+          o.rows.filter((r) => r.stageId > 0).map((r) => [`${o.key}/${r.key}`, true])
+        )
+      )
+    );
+  };
 
   // Bắt phím ở tầng document: người dùng vừa mở trang là gõ được ngay, không
   // phải bấm vào bảng trước. `useHotkeys` đã lọc sạch input và modal.
@@ -423,7 +429,7 @@ export default function LsxGrid({
 
     if (e.ctrlKey || e.metaKey) {
       if (k === "a" || k === "A")
-        setSelected(Object.fromEntries(rows.map((r) => [r.key, true])));
+        setSelected(Object.fromEntries(allRows.map((r) => [r.key, true])));
       else if (k === "Delete" || k === "Backspace") {
         if (selectedRows.length > 0) setPendingDelete(selectedRows);
       } else return;
@@ -446,15 +452,12 @@ export default function LsxGrid({
     if (e.shiftKey) {
       switch (k) {
         case "ArrowLeft":
+          setOpenOrders({});
           setOpenRows({});
           setOpenParts({});
           break;
         case "ArrowRight":
-          setOpenRows(
-            Object.fromEntries(
-              rows.filter((r) => r.stageId > 0).map((r) => [r.key, true])
-            )
-          );
+          expandAll();
           break;
         case "ArrowUp":
         case "ArrowDown": {
@@ -510,10 +513,10 @@ export default function LsxGrid({
 
       // Thêm đợt / thêm chi tiết, tuỳ dòng đang trỏ. Đứng ở một đợt thì thêm
       // vào đúng nhóm chứa nó — đang gõ dở các đợt thì chẳng ai muốn leo ngược
-      // lên dòng cha rồi mới bấm được.
+      // lên dòng cha rồi mới bấm được. Ở dòng LSX thì không có gì để thêm.
       case "a":
       case "A": {
-        if (!here) return;
+        if (!here || here.kind === "order") return;
         const target = here.kind === "batch" ? here.parentId! : here.id;
         // Dòng giữ chỗ chưa có mục nào thì không có gì để thêm vào.
         if (!nav[indexOfRow(nav, target)]?.expandable) return;
@@ -529,7 +532,7 @@ export default function LsxGrid({
       case " ":
       case "x":
       case "X":
-        // Dòng con không có checkbox. Vẫn nuốt Space để trang không nhảy.
+        // Dòng LSX và dòng con không có checkbox. Vẫn nuốt Space để trang không nhảy.
         if (here?.selectable) {
           setSelected((s) => ({ ...s, [here.rowKey]: !s[here.rowKey] }));
           anchor.current = here.id;
@@ -552,20 +555,20 @@ export default function LsxGrid({
     e.preventDefault();
   });
 
-  if (rows.length === 0) {
+  if (orders.length === 0) {
     return (
       <div className="flex flex-col items-center py-24 text-center">
         <span
-          className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
+          className="mb-4 flex h-16 w-16 items-center justify-center rounded"
           style={{
-            background: "var(--g-fill)",
-            border: "1px solid var(--g-line-3)",
-            color: "var(--g-text-4)",
+            background: "var(--s-bar)",
+            border: "1px solid var(--s-card-line)",
+            color: "var(--s-muted)",
           }}
         >
           <SearchX size={28} />
         </span>
-        <p style={{ color: "var(--g-text-3)" }}>
+        <p style={{ color: "var(--s-ink-2)" }}>
           Không có lệnh sản xuất nào khớp bộ lọc.
         </p>
       </div>
@@ -574,179 +577,162 @@ export default function LsxGrid({
 
   return (
     <NavCtx.Provider value={api}>
-    <div
-      ref={scopeRef}
-      className="relative flex h-full flex-col"
-      style={{ ["--grid-cols" as string]: gridCols }}
-      onMouseOver={trackHover}
-      onMouseLeave={() => setAttr("data-hovercol", null)}
-    >
-      {/* Header ở NGOÀI vùng cuộn dọc: nhờ vậy nó luôn hiện mà vẫn trong suốt,
-          không cần nền để che dòng trôi qua bên dưới. Cuộn ngang đồng bộ tay. */}
       <div
-        ref={headRef}
-        className="shrink-0 overflow-hidden"
-        style={{ paddingRight: gutter }}
+        ref={scopeRef}
+        className="relative"
+        style={{ ["--grid-cols" as string]: gridCols }}
+        onMouseOver={trackHover}
+        onMouseLeave={() => setAttr("data-hovercol", null)}
       >
-        <div style={{ minWidth, position: "relative" }}>
-          <ColumnBands />
-          <Header
-            columns={columns}
-            allChecked={rows.length > 0 && selectedRows.length === rows.length}
-            someChecked={selectedRows.length > 0}
-            onToggleAll={(on) =>
-              setSelected(
-                on ? Object.fromEntries(rows.map((r) => [r.key, true])) : {}
-              )
-            }
-          />
-        </div>
-      </div>
+        {/* Một vùng cuộn duy nhất: header dính đỉnh, cột A dính trái, ô giao
+            của hai cái đó tự khắc luôn hiện. Không phải đồng bộ scroll tay. */}
+        <div
+          ref={bodyRef}
+          className="overflow-auto"
+          style={{ maxHeight: "76vh" }}
+        >
+          <div style={{ minWidth, position: "relative" }}>
+            <ColumnBands />
 
-      <div
-        ref={bodyRef}
-        className="min-h-0 flex-1 overflow-auto"
-        onScroll={(e) => {
-          if (headRef.current)
-            headRef.current.scrollLeft = e.currentTarget.scrollLeft;
-        }}
-      >
-        <div ref={innerRef} style={{ minWidth, position: "relative" }}>
-          <ColumnBands />
-          {rows.map((row) => {
-            const open = !!openRows[row.key] && row.stageId > 0;
-            return (
-              <div key={row.key}>
-                <ParentRow
-                  row={row}
-                  navId={row.key}
-                  open={open}
-                  checked={!!selected[row.key]}
-                  onToggle={() => row.stageId > 0 && toggleRow(row.key)}
-                  onCheck={(on) =>
-                    setSelected((s) => ({ ...s, [row.key]: on }))
-                  }
-                  onEdit={() => setEditOrder(row.orderId)}
-                  onDelete={() => setPendingDelete([row])}
-                />
+            <Header
+              columns={columns}
+              allChecked={allRows.length > 0 && selectedRows.length === allRows.length}
+              someChecked={selectedRows.length > 0}
+              onToggleAll={(on) =>
+                setSelected(
+                  on ? Object.fromEntries(allRows.map((r) => [r.key, true])) : {}
+                )
+              }
+            />
 
-                {open && (
-                  <div
-                    className="glass-expand"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      // Viền vẽ bằng inset shadow, và không có padding ngang:
-                      // border + padding sẽ thu hẹp lưới của dòng con so với
-                      // dòng cha, mà cột size là `fr` nên phần hẹp đi bị chia
-                      // lại — các ô số lệch dần khỏi cột của dòng cha.
-                      boxShadow: "inset 0 0 0 1px var(--g-line-2)",
-                      borderRadius: 14,
-                      margin: "4px 0 12px",
-                      padding: "6px 0 10px",
-                    }}
-                  >
-                    <div
-                      className="glass-row"
-                      style={{
-                        padding: "9px 0 6px",
-                        fontSize: 11,
-                        color: "rgba(198,181,255,0.9)",
-                        letterSpacing: ".4px",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      <span />
-                      <span />
-                      <span
-                        style={{ gridColumn: `span ${n + 8}`, paddingLeft: 28 }}
-                      >
-                        {row.childHeader}
-                      </span>
-                    </div>
+            {orders.map((order) => {
+              const orderOpen = !!openOrders[order.key] && order.rows.length > 0;
+              return (
+                <div key={order.key}>
+                  <OrderRow
+                    order={order}
+                    navId={order.key}
+                    open={orderOpen}
+                    onToggle={() => order.rows.length > 0 && toggle(order.key, !orderOpen)}
+                    onEdit={() => setEditOrder(order.orderId)}
+                  />
 
-                    {row.muc === "SEW_OUT"
-                      ? row.children.map((part, i) => (
-                          <PartBlock
-                            key={part.key}
+                  {orderOpen &&
+                    order.rows.map((row) => {
+                      const rowId = `${order.key}/${row.key}`;
+                      const open = !!openRows[rowId] && row.stageId > 0;
+                      return (
+                        <div key={row.key} className="sheet-expand">
+                          <StageRow
                             row={row}
-                            navId={`${row.key}/${part.key}`}
-                            part={part}
-                            columns={columns}
-                            index={i}
-                            open={!!openParts[`${row.key}/${part.key}`]}
-                            onToggle={() => togglePart(`${row.key}/${part.key}`)}
+                            navId={rowId}
+                            open={open}
+                            checked={!!selected[row.key]}
+                            onToggle={() => row.stageId > 0 && toggle(rowId, !open)}
+                            onCheck={(on) =>
+                              setSelected((s) => ({ ...s, [row.key]: on }))
+                            }
+                            onDelete={() => setPendingDelete([row])}
                           />
-                        ))
-                      : row.children.map((child, i) => (
-                          <ChildRow
-                            key={child.key}
-                            navId={`${row.key}/${child.key}`}
-                            child={child}
-                            indent={28}
-                            index={i}
-                          />
-                        ))}
 
-                    {row.muc === "SEW_OUT" ? (
-                      <AddPartRow
-                        row={row}
-                        columns={columns}
-                        addId={`add:${row.key}`}
-                      />
-                    ) : (
-                      <AddBatchRow
-                        row={row}
-                        columns={columns}
-                        partId={null}
-                        indent={28}
-                        addId={`add:${row.key}`}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                          {open && (
+                            <div className="sheet-expand">
+                              {row.muc === "SEW_OUT"
+                                ? row.children.map((part) => (
+                                    <PartBlock
+                                      key={part.key}
+                                      row={row}
+                                      navId={`${rowId}/${part.key}`}
+                                      part={part}
+                                      columns={columns}
+                                      open={!!openParts[`${rowId}/${part.key}`]}
+                                      onToggle={() =>
+                                        toggle(
+                                          `${rowId}/${part.key}`,
+                                          !openParts[`${rowId}/${part.key}`]
+                                        )
+                                      }
+                                    />
+                                  ))
+                                : row.children.map((child) => (
+                                    <BatchRow
+                                      key={child.key}
+                                      navId={`${rowId}/${child.key}`}
+                                      child={child}
+                                      indent={INDENT.batch}
+                                      bg={ROW_BG.batch}
+                                    />
+                                  ))}
+
+                              {row.muc === "SEW_OUT" ? (
+                                <AddPartRow
+                                  row={row}
+                                  columns={columns}
+                                  addId={`add:${rowId}`}
+                                />
+                              ) : (
+                                <AddBatchRow
+                                  row={row}
+                                  columns={columns}
+                                  partId={null}
+                                  indent={INDENT.batch}
+                                  bg={ROW_BG.batch}
+                                  addId={`add:${rowId}`}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              );
+            })}
+          </div>
         </div>
+
+        {selectedRows.length > 0 && (
+          <SelectionBar
+            rowCount={selectedRows.length}
+            exportable={selectedRows.filter((r) => r.stageId > 0).length}
+            busy={deleting}
+            exporting={exporting}
+            onClear={() => setSelected({})}
+            onExport={() => runExport(selectedRows)}
+            onDelete={() => setPendingDelete(selectedRows)}
+          />
+        )}
+
+        <OrderFormModal
+          key={editOrder ?? "none"}
+          open={editOrder !== null}
+          onOpenChange={(v) => !v && setEditOrder(null)}
+          orderId={editOrder ?? undefined}
+          sheet
+        />
+
+        <SheetProvider value>
+          <ConfirmDialog
+            open={pendingDelete !== null}
+            onOpenChange={(v) => !v && setPendingDelete(null)}
+            danger
+            title={deleteTitle(pendingDelete)}
+            description={describeDelete(pendingDelete)}
+            confirmLabel="Xoá"
+            onConfirm={() => pendingDelete && runDelete(pendingDelete)}
+          />
+        </SheetProvider>
       </div>
-
-      {selectedRows.length > 0 && (
-        <SelectionBar
-          rowCount={selectedRows.length}
-          exportable={selectedRows.filter((r) => r.stageId > 0).length}
-          busy={deleting}
-          exporting={exporting}
-          onClear={() => setSelected({})}
-          onExport={() => runExport(selectedRows)}
-          onDelete={() => setPendingDelete(selectedRows)}
-        />
-      )}
-
-      <OrderFormModal
-        key={editOrder ?? "none"}
-        open={editOrder !== null}
-        onOpenChange={(v) => !v && setEditOrder(null)}
-        orderId={editOrder ?? undefined}
-        glass
-      />
-
-      <GlassProvider value>
-        <ConfirmDialog
-          open={pendingDelete !== null}
-          onOpenChange={(v) => !v && setPendingDelete(null)}
-          danger
-          title={deleteTitle(pendingDelete)}
-          description={describeDelete(pendingDelete)}
-          confirmLabel="Xoá"
-          onConfirm={() => pendingDelete && runDelete(pendingDelete)}
-        />
-      </GlassProvider>
-    </div>
     </NavCtx.Provider>
   );
 }
 
-/** Nhãn của một dòng: "LSX · Phân loại · Mục", hoặc phân loại nếu chưa có mục. */
+/** Nhãn hiển thị của một mục: "Nhận thêu (Áo)"; chưa có mục thì chỉ còn phân loại. */
+function stageLabel(r: GridRow): string {
+  return r.stageId > 0 ? `${r.mucLabel} (${r.categoryName})` : r.categoryName;
+}
+
+/** Nhãn đầy đủ cho hộp thoại xoá: "LSX · Phân loại · Mục". */
 function rowLabel(r: GridRow): string {
   return r.stageId > 0
     ? `${r.code} · ${r.categoryName} · ${r.mucLabel}`
@@ -809,37 +795,40 @@ function SelectionBar({
   onExport: () => void;
   onDelete: () => void;
 }) {
+  const btn: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    background: "#fff",
+    border: "1px solid var(--s-card-line)",
+    borderRadius: 4,
+    padding: "5px 10px",
+    fontSize: 12,
+    cursor: "pointer",
+  };
   return (
     <div
-      className="glass-card"
       style={{
         position: "absolute",
-        bottom: 14,
+        bottom: 16,
         left: "50%",
         transform: "translateX(-50%)",
-        zIndex: 5,
+        zIndex: 20,
         display: "flex",
         alignItems: "center",
         gap: 12,
         padding: "9px 12px 9px 16px",
-        borderRadius: 14,
+        borderRadius: 4,
         fontSize: 13,
+        background: "var(--s-bar)",
+        border: "1px solid var(--s-card-line)",
+        boxShadow: "0 10px 30px rgba(31,42,36,.22)",
       }}
     >
       <span>
-        Đã chọn <b>{rowCount}</b> dòng
+        Đã chọn <b>{rowCount}</b> mục
       </span>
-      <button
-        onClick={onClear}
-        style={{
-          background: "var(--g-fill)",
-          border: "1px solid var(--g-line-3)",
-          borderRadius: 9,
-          padding: "5px 10px",
-          fontSize: 12,
-          cursor: "pointer",
-        }}
-      >
+      <button onClick={onClear} style={btn}>
         Bỏ chọn
       </button>
       <button
@@ -847,14 +836,7 @@ function SelectionBar({
         disabled={exporting || exportable === 0}
         title="Xuất các dòng đã chọn ra Excel"
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          background: "var(--g-fill)",
-          border: "1px solid var(--g-line-3)",
-          borderRadius: 9,
-          padding: "5px 10px",
-          fontSize: 12,
+          ...btn,
           cursor: exporting || exportable === 0 ? "default" : "pointer",
           opacity: exporting || exportable === 0 ? 0.5 : 1,
         }}
@@ -866,32 +848,26 @@ function SelectionBar({
         onClick={onDelete}
         disabled={busy}
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          background: "rgba(255,157,122,0.16)",
-          border: "1px solid rgba(255,157,122,0.4)",
-          color: "var(--g-short)",
-          borderRadius: 9,
-          padding: "5px 10px",
-          fontSize: 12,
-          fontWeight: 500,
+          ...btn,
+          background: "#fef2f2",
+          border: "1px solid #fecaca",
+          color: "var(--s-short)",
+          fontWeight: 600,
           cursor: busy ? "default" : "pointer",
           opacity: busy ? 0.5 : 1,
         }}
       >
-        <Trash2 size={13} /> {busy ? "Đang xoá…" : "Xoá dòng đã chọn"}
+        <Trash2 size={13} /> {busy ? "Đang xoá…" : "Xoá mục đã chọn"}
       </button>
     </div>
   );
 }
 
-/** Dòng con hiện lần lượt khi mở rộng — trễ dần, chặn trên để không lê thê. */
-function stagger(index: number): React.CSSProperties {
-  return { animationDelay: `${Math.min(index * 28, 160)}ms` };
-}
-
-/** Không cần nền: nó nằm ngoài vùng cuộn nên chẳng có gì trôi qua sau nó. */
+/**
+ * Header hai hàng. Là MỘT lưới chứ không phải hai dòng chồng lên nhau: các cột
+ * ngoài cụm size phải cao suốt cả hai hàng (rowspan), mà rowspan chỉ có được khi
+ * chúng nằm chung một lưới.
+ */
 function Header({
   columns,
   allChecked,
@@ -903,46 +879,79 @@ function Header({
   someChecked: boolean;
   onToggleAll: (on: boolean) => void;
 }) {
+  const n = columns.length;
+  const both = "1 / 3";
+  /** Vị trí cột trong lưới (1-based): A, Chuyền may, size…, Tổng, Ngày, Ghi chú, thao tác. */
+  const TOTAL = 3 + n;
+
   return (
     <div
-      className="glass-row"
-      style={{
-        padding: "12px 0",
-        fontSize: 15,
-        fontWeight: 500,
-        color: "#fff",
-        borderBottom: "1px solid var(--g-line-4)",
-        alignItems: "end",
-        whiteSpace: "nowrap",
-      }}
+      className="sheet-row sheet-head"
+      style={{ gridTemplateRows: "auto auto", fontSize: 12, fontWeight: 600 }}
     >
-      <span style={{ display: "flex", justifyContent: "center" }}>
+      <span
+        className="sheet-cell sheet-freeze"
+        style={{ gridColumn: 1, gridRow: both, gap: 7, fontSize: 12.5 }}
+      >
         <RowCheckbox
           checked={allChecked}
           indeterminate={someChecked && !allChecked}
           onChange={onToggleAll}
-          label="Chọn tất cả dòng"
+          label="Chọn tất cả mục"
         />
+        Lệnh SX · Mục · Đợt
       </span>
-      <span />
-      <SortHead sortKey="code">LSX</SortHead>
-      <SortHead sortKey="line">Chuyền may</SortHead>
-      <span>Mục</span>
-      <span>Phân loại</span>
+
+      <span className="sheet-cell" style={{ gridColumn: 2, gridRow: both }}>
+        <SortHead sortKey="line">Chuyền may</SortHead>
+      </span>
+
+      <span
+        className="sheet-cell sheet-head--sizes"
+        style={{
+          gridColumn: `3 / ${3 + n}`,
+          gridRow: 1,
+          justifyContent: "center",
+          letterSpacing: ".4px",
+          fontSize: 11,
+        }}
+      >
+        SỐ LƯỢNG THEO SIZE
+      </span>
+
       {columns.map((c, i) => (
         <span
           key={c.id}
-          className="glass-cell"
+          className="sheet-cell sheet-head--sizes"
           data-col={i}
-          style={{ textAlign: "center", fontSize: 11, lineHeight: 1.1 }}
+          style={{
+            gridColumn: 3 + i,
+            gridRow: 2,
+            justifyContent: "center",
+            fontSize: 11,
+            lineHeight: 1.1,
+          }}
         >
           {c.label}
         </span>
       ))}
-      <span style={{ textAlign: "center" }}>Tổng</span>
-      <SortHead sortKey="createdAt">Ngày tạo</SortHead>
-      <span>Ghi chú</span>
-      <span />
+
+      <span
+        className="sheet-cell sheet-cell--num"
+        style={{ gridColumn: TOTAL, gridRow: both, fontWeight: 700 }}
+      >
+        Tổng
+      </span>
+      <span className="sheet-cell" style={{ gridColumn: TOTAL + 1, gridRow: both }}>
+        <SortHead sortKey="createdAt">Ngày</SortHead>
+      </span>
+      <span className="sheet-cell" style={{ gridColumn: TOTAL + 2, gridRow: both }}>
+        Ghi chú
+      </span>
+      <span
+        className="sheet-cell"
+        style={{ gridColumn: TOTAL + 3, gridRow: both, borderRight: "none" }}
+      />
     </div>
   );
 }
@@ -981,9 +990,9 @@ function SortHead({
         border: "none",
         padding: 0,
         cursor: "pointer",
-        fontSize: 15,
-        fontWeight: 500,
-        color: active ? "var(--g-accent)" : "#fff",
+        font: "inherit",
+        color: "#fff",
+        opacity: active ? 1 : 0.92,
         whiteSpace: "nowrap",
       }}
     >
@@ -995,20 +1004,174 @@ function SortHead({
           <ArrowDown size={12} />
         )
       ) : (
-        <ChevronsUpDown size={12} style={{ opacity: 0.4 }} />
+        <ChevronsUpDown size={12} style={{ opacity: 0.5 }} />
       )}
     </button>
   );
 }
 
-function ParentRow({
+/** Nút gập/mở 18×18 của cột A; chỗ trống giữ đúng bề rộng để nhãn luôn thẳng cột. */
+function Chevron({
+  open,
+  hidden,
+  onClick,
+}: {
+  open: boolean;
+  hidden?: boolean;
+  onClick?: () => void;
+}) {
+  if (hidden) return <span style={{ width: 18, flexShrink: 0 }} />;
+  return (
+    <button
+      aria-label={open ? "Thu gọn" : "Mở rộng"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      style={{
+        width: 18,
+        height: 18,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#fff",
+        border: "1px solid var(--s-card-line)",
+        borderRadius: 3,
+        color: "#3f4a43",
+        cursor: "pointer",
+        padding: 0,
+      }}
+    >
+      <ChevronRight
+        size={11}
+        style={{
+          transform: open ? "rotate(90deg)" : "none",
+          transition: "transform .15s",
+        }}
+      />
+    </button>
+  );
+}
+
+/** Tầng 1 — một LSX: SL dự kiến (chỉ đọc, sửa trong form LSX). */
+function OrderRow({
+  order,
+  navId,
+  open,
+  onToggle,
+  onEdit,
+}: {
+  order: GridOrder;
+  navId: string;
+  open: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+}) {
+  const nav = useContext(NavCtx);
+  return (
+    <div
+      data-nav={navId}
+      tabIndex={nav.tabIndex(navId, ROW_LEVEL)}
+      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)}
+      onClick={() => {
+        nav.point(navId, ROW_LEVEL);
+        onToggle();
+      }}
+      className="sheet-row sheet-hover"
+      style={{
+        ["--row-bg" as string]: ROW_BG.order,
+        cursor: "pointer",
+        outline: "none",
+      }}
+    >
+      <span
+        className="sheet-cell sheet-freeze"
+        style={{ gap: 7, paddingLeft: INDENT.order }}
+      >
+        <Chevron
+          open={open}
+          hidden={order.rows.length === 0}
+          onClick={onToggle}
+        />
+        <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: "var(--s-ink)" }}>
+            {order.code}
+          </span>
+          <span
+            className="truncate"
+            style={{ fontSize: 11, color: "var(--s-muted)", maxWidth: 230 }}
+          >
+            {order.productName}
+          </span>
+        </span>
+      </span>
+
+      <span
+        className="sheet-cell truncate"
+        style={{ color: "var(--s-ink-2)", whiteSpace: "nowrap" }}
+      >
+        {order.lineName ?? (
+          <span style={{ color: "var(--s-dash)" }}>chưa gán</span>
+        )}
+      </span>
+
+      {order.plan.map((v, i) => (
+        <span
+          key={i}
+          className="sheet-cell sheet-cell--num"
+          data-col={i}
+          style={{ color: v ? "var(--s-plan)" : "var(--s-dash)" }}
+        >
+          {v || "–"}
+        </span>
+      ))}
+
+      <span
+        className="sheet-cell sheet-cell--num"
+        style={{
+          fontWeight: 700,
+          color: "var(--s-plan)",
+          background: "var(--s-plan-bg)",
+        }}
+      >
+        {order.planTotal || "–"}
+      </span>
+
+      <EditDateCell
+        iso={order.createdAtIso}
+        label={order.createdAt}
+        save={(iso) => setOrderCreatedAt(order.orderId, iso)}
+      />
+
+      <span
+        className="sheet-cell truncate"
+        style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
+      >
+        {order.note ?? `Dự kiến · ${order.createdAt}`}
+      </span>
+
+      <span
+        className="sheet-cell"
+        style={{ justifyContent: "center", gap: 6, borderRight: "none" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button title="Chỉnh sửa LSX" onClick={onEdit} style={actionBtn}>
+          <Pencil size={13} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+/** Tầng 2 — một mục của một phân loại: "Nhận thêu (Áo)". Ô số = SL kế hoạch. */
+function StageRow({
   row,
   navId,
   open,
   checked,
   onToggle,
   onCheck,
-  onEdit,
   onDelete,
 }: {
   row: GridRow;
@@ -1017,76 +1180,58 @@ function ParentRow({
   checked: boolean;
   onToggle: () => void;
   onCheck: (on: boolean) => void;
-  onEdit: () => void;
   onDelete: () => void;
 }) {
   const nav = useContext(NavCtx);
+
+  const note =
+    row.stageId === 0
+      ? "Chưa có mục"
+      : row.muc === "SEW_OUT"
+        ? row.children.length
+          ? `${row.children.length} chi tiết`
+          : "Chưa có chi tiết"
+        : row.children.length
+          ? `Đã nhận · ${row.children.length} đợt`
+          : "Chưa nhận";
+
   return (
     <div
       data-nav={navId}
       tabIndex={nav.tabIndex(navId, ROW_LEVEL)}
-      // Tab từ thanh công cụ rơi vào đây; con trỏ phải theo, không thì phím
-      // mũi tên tiếp theo chẳng biết bắt đầu từ đâu.
       onFocus={(e) => e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)}
       onClick={() => {
         nav.point(navId, ROW_LEVEL);
         onToggle();
       }}
-      className="glass-row glass-hover"
+      className="sheet-row sheet-hover"
       style={{
-        padding: "13px 0",
-        fontSize: 14,
-        color: "rgba(255,255,255,0.85)",
-        borderBottom: "1px solid var(--g-line-1)",
-        alignItems: "center",
+        ["--row-bg" as string]: checked ? "#dbeccf" : ROW_BG.stage,
         cursor: "pointer",
         outline: "none",
-        background: checked ? "rgba(198,181,255,0.10)" : undefined,
       }}
     >
       <span
-        style={{ display: "flex", justifyContent: "center" }}
-        onClick={(e) => e.stopPropagation()}
+        className="sheet-cell sheet-freeze"
+        style={{ gap: 7, paddingLeft: INDENT.stage }}
       >
-        <RowCheckbox
-          checked={checked}
-          onChange={onCheck}
-          label={`Chọn ${row.code} · ${row.categoryName} · ${row.mucLabel}`}
-        />
-      </span>
-
-      <span
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          color: "var(--g-text-3)",
-          transform: open ? "rotate(90deg)" : "rotate(0deg)",
-          transition: "transform .15s",
-          visibility: row.stageId > 0 ? "visible" : "hidden",
-        }}
-      >
-        <ChevronRight size={13} />
-      </span>
-
-      <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <span style={{ fontWeight: 600, fontSize: 15, color: "#fff" }}>
-          {row.code}
+        <span onClick={(e) => e.stopPropagation()} style={{ display: "flex" }}>
+          <RowCheckbox
+            checked={checked}
+            onChange={onCheck}
+            label={`Chọn ${row.code} · ${row.categoryName} · ${row.mucLabel}`}
+          />
         </span>
+        <Chevron open={open} hidden={row.stageId === 0} onClick={onToggle} />
         <span
           className="truncate"
-          style={{ fontSize: 12, color: "var(--g-text-4)" }}
+          style={{ fontWeight: 600, fontSize: 12.5, color: "#2f3a34" }}
         >
-          {row.productName}
+          {stageLabel(row)}
         </span>
       </span>
 
-      <span className="truncate" style={{ color: "var(--g-text-2)" }}>
-        {row.lineName ?? <span style={{ color: "var(--g-dim)" }}>chưa gán</span>}
-      </span>
-      <span>{row.mucLabel}</span>
-      <span className="truncate" style={{ color: "var(--g-text-2)" }}>
-        {row.categoryName}
-      </span>
+      <span className="sheet-cell" />
 
       {row.cells.map((c, i) =>
         row.editableTarget ? (
@@ -1095,35 +1240,40 @@ function ParentRow({
             rowId={navId}
             cell={c}
             col={i}
+            lit="var(--s-recv)"
             save={(q) => setStageTarget(row.stageId, c.orderSizeId!, q)}
           />
         ) : (
-          <StaticCell key={i} cell={c} col={i} />
+          <StaticCell key={i} cell={c} col={i} lit="var(--s-recv)" />
         )
       )}
 
-      <span style={{ textAlign: "center", fontWeight: 700, color: "#fff" }}>
-        {row.total || "—"}
-      </span>
-      <EditDateCell
-        iso={row.createdAtIso}
-        label={row.createdAt}
-        save={(iso) => setOrderCreatedAt(row.orderId, iso)}
-      />
       <span
-        className="truncate"
-        style={{ fontSize: 12, color: "var(--g-text-3)" }}
+        className="sheet-cell sheet-cell--num"
+        style={{
+          fontWeight: 700,
+          color: "var(--s-recv)",
+          background: "var(--s-recv-bg)",
+        }}
       >
-        {row.note ?? ""}
+        {row.total || "–"}
       </span>
+
+      <span className="sheet-cell" />
+
       <span
-        style={{ display: "flex", justifyContent: "center", gap: 6 }}
+        className="sheet-cell truncate"
+        style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
+      >
+        {note}
+      </span>
+
+      <span
+        className="sheet-cell"
+        style={{ justifyContent: "center", gap: 6, borderRight: "none" }}
         onClick={(e) => e.stopPropagation()}
       >
         <AddStageButton row={row} />
-        <button title="Chỉnh sửa LSX" onClick={onEdit} style={actionBtn}>
-          <Pencil size={13} />
-        </button>
         <button
           title={
             row.stageId > 0
@@ -1131,7 +1281,7 @@ function ParentRow({
               : `Xoá phân loại "${row.categoryName}" của ${row.code}`
           }
           onClick={onDelete}
-          style={{ ...actionBtn, color: "var(--g-short)" }}
+          style={{ ...actionBtn, color: "var(--s-short)" }}
         >
           <Trash2 size={13} />
         </button>
@@ -1142,7 +1292,7 @@ function ParentRow({
 
 /**
  * Thêm một mục còn thiếu cho (LSX × phân loại) đang ở dòng này.
- * Dòng mục giờ là bản ghi thật nên không tự có sẵn đủ bốn.
+ * Dòng mục là bản ghi thật nên không tự có sẵn đủ bốn.
  */
 function AddStageButton({ row }: { row: GridRow }) {
   const router = useRouter();
@@ -1160,8 +1310,8 @@ function AddStageButton({ row }: { row: GridRow }) {
   }, [open]);
 
   if (row.missingMucs.length === 0) {
-    // Giữ chỗ để ba nút của mọi dòng luôn thẳng cột với nhau.
-    return <span style={{ width: 32, flexShrink: 0 }} />;
+    // Giữ chỗ để các nút của mọi dòng luôn thẳng cột với nhau.
+    return <span style={{ width: 26, flexShrink: 0 }} />;
   }
 
   const add = (type: MovementType) =>
@@ -1182,22 +1332,24 @@ function AddStageButton({ row }: { row: GridRow }) {
         title={`Thêm mục cho ${row.code} · ${row.categoryName}`}
         onClick={() => setOpen((v) => !v)}
         disabled={pending}
-        style={{ ...actionBtn, color: "rgba(198,181,255,0.95)" }}
+        style={{ ...actionBtn, color: "var(--s-accent)" }}
       >
         <Plus size={14} />
       </button>
 
       {open && (
         <div
-          className="glass-card"
           style={{
             position: "absolute",
-            top: 36,
+            top: 30,
             right: 0,
             zIndex: 30,
-            borderRadius: 12,
-            padding: 6,
-            minWidth: 148,
+            background: "#fff",
+            border: "1px solid var(--s-card-line)",
+            borderRadius: 4,
+            boxShadow: "0 10px 30px rgba(31,42,36,.2)",
+            padding: 5,
+            minWidth: 150,
             display: "flex",
             flexDirection: "column",
             gap: 2,
@@ -1208,7 +1360,7 @@ function AddStageButton({ row }: { row: GridRow }) {
               fontSize: 10.5,
               textTransform: "uppercase",
               letterSpacing: ".4px",
-              color: "var(--g-text-4)",
+              color: "var(--s-muted)",
               padding: "4px 8px 2px",
             }}
           >
@@ -1225,18 +1377,16 @@ function AddStageButton({ row }: { row: GridRow }) {
                 gap: 7,
                 background: "none",
                 border: "none",
-                borderRadius: 8,
+                borderRadius: 3,
                 padding: "6px 8px",
                 fontSize: 12.5,
                 textAlign: "left",
                 cursor: pending ? "default" : "pointer",
               }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,255,255,0.08)")
-              }
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#eef5e9")}
               onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
             >
-              <Plus size={12} style={{ color: "rgba(198,181,255,0.9)" }} />
+              <Plus size={12} style={{ color: "var(--s-accent)" }} />
               {MUC_LABEL[m]}
             </button>
           ))}
@@ -1247,11 +1397,12 @@ function AddStageButton({ row }: { row: GridRow }) {
 }
 
 const actionBtn: React.CSSProperties = {
-  width: 32,
-  height: 32,
-  borderRadius: 9,
-  background: "rgba(255,255,255,0.1)",
-  border: "1px solid var(--g-line-4)",
+  width: 26,
+  height: 26,
+  borderRadius: 3,
+  background: "#fff",
+  border: "1px solid var(--s-card-line)",
+  color: "#5a635c",
   cursor: "pointer",
   display: "flex",
   alignItems: "center",
@@ -1284,22 +1435,22 @@ function RowCheckbox({
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
       style={{
-        width: 15,
-        height: 15,
+        width: 14,
+        height: 14,
+        flexShrink: 0,
         cursor: "pointer",
-        accentColor: "var(--g-accent)",
+        accentColor: "var(--s-accent)",
       }}
     />
   );
 }
 
-/** Dòng chi tiết (định mức) + các đợt đã gửi của riêng chi tiết đó. */
+/** Tầng 3 của "Gửi may" — chi tiết bán thành phẩm (định mức) + các đợt của nó. */
 function PartBlock({
   row,
   navId,
   part,
   columns,
-  index,
   open,
   onToggle,
 }: {
@@ -1307,7 +1458,6 @@ function PartBlock({
   navId: string;
   part: GridChild;
   columns: SizeColumn[];
-  index: number;
   open: boolean;
   onToggle: () => void;
 }) {
@@ -1320,45 +1470,31 @@ function PartBlock({
         onFocus={(e) =>
           e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)
         }
-        className="glass-row glass-hover glass-row-in"
+        onClick={() => {
+          nav.point(navId, ROW_LEVEL);
+          onToggle();
+        }}
+        className="sheet-row sheet-hover sheet-expand"
         style={{
-          padding: "9px 0",
-          fontSize: 13,
-          alignItems: "center",
-          borderTop: "1px solid var(--g-line-1)",
+          ["--row-bg" as string]: ROW_BG.part,
+          cursor: "pointer",
           outline: "none",
-          ...stagger(index),
         }}
       >
-        <span />
-        <span />
         <span
-          onClick={() => {
-            nav.point(navId, ROW_LEVEL);
-            onToggle();
-          }}
-          style={{
-            gridColumn: `span ${LABEL_SPAN}`,
-            paddingLeft: 28,
-            color: "rgba(255,255,255,0.92)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            cursor: "pointer",
-            minWidth: 0,
-          }}
+          className="sheet-cell sheet-freeze"
+          style={{ gap: 7, paddingLeft: INDENT.part }}
         >
-          <ChevronRight
-            size={12}
-            style={{
-              flexShrink: 0,
-              color: "var(--g-text-3)",
-              transform: open ? "rotate(90deg)" : "rotate(0deg)",
-              transition: "transform .15s",
-            }}
-          />
-          <span className="truncate">{part.label}</span>
+          <Chevron open={open} onClick={onToggle} />
+          <span
+            className="truncate"
+            style={{ fontWeight: 500, fontSize: 12, color: "var(--s-ink-2)" }}
+          >
+            {part.label}
+          </span>
         </span>
+
+        <span className="sheet-cell" />
 
         {part.cells.map((c, i) => (
           <EditCell
@@ -1366,36 +1502,45 @@ function PartBlock({
             rowId={navId}
             cell={c}
             col={i}
+            lit="var(--s-ink)"
             save={(q) => setPartTarget(part.partId!, c.orderSizeId!, q)}
           />
         ))}
 
-        <span style={{ textAlign: "center", fontWeight: 600, color: "#fff" }}>
-          {part.total || "—"}
+        <span
+          className="sheet-cell sheet-cell--num"
+          style={{ fontWeight: 700, color: "var(--s-ink)" }}
+        >
+          {part.total || "–"}
         </span>
-        <span />
-        <span style={{ fontSize: 12, color: "var(--g-text-4)" }}>
+
+        <span className="sheet-cell" />
+        <span
+          className="sheet-cell truncate"
+          style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
+        >
           {part.note}
         </span>
-        <span />
+        <span className="sheet-cell" style={{ borderRight: "none" }} />
       </div>
 
       {open && (
-        <div className="glass-expand">
-          {(part.batches ?? []).map((b, i) => (
-            <ChildRow
+        <div className="sheet-expand">
+          {(part.batches ?? []).map((b) => (
+            <BatchRow
               key={b.key}
               navId={`${navId}/${b.key}`}
               child={b}
-              indent={56}
-              index={i}
+              indent={INDENT.subBatch}
+              bg={ROW_BG.subBatch}
             />
           ))}
           <AddBatchRow
             row={row}
             columns={columns}
             partId={part.partId}
-            indent={56}
+            indent={INDENT.subBatch}
+            bg={ROW_BG.subBatch}
             addId={`add:${navId}`}
           />
         </div>
@@ -1405,64 +1550,59 @@ function PartBlock({
 }
 
 /** Dòng "đợt" — mỗi ô là một MovementItem, sửa được. */
-function ChildRow({
+function BatchRow({
   child,
   navId,
   indent,
-  index,
+  bg,
 }: {
   child: GridChild;
   navId: string;
   indent: number;
-  index: number;
+  bg: string;
 }) {
   const router = useRouter();
   const nav = useContext(NavCtx);
   const [pending, start] = useTransition();
+  const [confirming, setConfirming] = useState(false);
 
-  const remove = () => {
-    if (!confirm(`Xoá "${child.label}" (ngày ${child.dateLabel})?`)) return;
+  const remove = () =>
     start(async () => {
       const res = await deleteBatch(child.movementId!);
+      setConfirming(false);
       if (res.ok) {
         toast.success("Đã xoá đợt");
         router.refresh();
       } else toast.error(res.error ?? "Lỗi khi xoá.");
     });
-  };
 
   return (
     <div
       data-nav={navId}
       tabIndex={nav.tabIndex(navId, ROW_LEVEL)}
-      onFocus={(e) =>
-        e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)
-      }
+      onFocus={(e) => e.target === e.currentTarget && nav.point(navId, ROW_LEVEL)}
       onClick={() => nav.point(navId, ROW_LEVEL)}
-      className="glass-row glass-hover glass-row-in"
+      className="sheet-row sheet-hover sheet-expand"
       style={{
-        padding: "9px 0",
-        fontSize: 13,
-        color: "var(--g-text-2)",
-        alignItems: "center",
-        borderTop: "1px solid var(--g-line-1)",
+        ["--row-bg" as string]: bg,
         outline: "none",
         opacity: pending ? 0.4 : 1,
-        ...stagger(index),
       }}
     >
-      <span />
-      <span />
       <span
-        className="truncate"
-        style={{
-          gridColumn: `span ${LABEL_SPAN}`,
-          paddingLeft: indent,
-          color: "rgba(255,255,255,0.92)",
-        }}
+        className="sheet-cell sheet-freeze"
+        style={{ gap: 7, paddingLeft: indent }}
       >
-        {child.label}
+        <span style={{ width: 18, flexShrink: 0 }} />
+        <span
+          className="truncate"
+          style={{ fontWeight: 500, fontSize: 12, color: "var(--s-ink-2)" }}
+        >
+          {child.label}
+        </span>
       </span>
+
+      <span className="sheet-cell" />
 
       {child.cells.map((c, i) => (
         <EditCell
@@ -1470,63 +1610,85 @@ function ChildRow({
           rowId={navId}
           cell={c}
           col={i}
+          lit="var(--s-ink)"
           save={(q) =>
             setItemQty(child.movementId!, c.orderSizeId!, child.partId, q)
           }
         />
       ))}
 
-      <span style={{ textAlign: "center", fontWeight: 600, color: "#fff" }}>
-        {child.total || "—"}
+      <span
+        className="sheet-cell sheet-cell--num"
+        style={{ fontWeight: 700, color: "var(--s-ink)" }}
+      >
+        {child.total || "–"}
       </span>
+
       <EditDateCell
         iso={child.dateIso!}
         label={child.dateLabel}
         save={(iso) => setMovementDate(child.movementId!, iso)}
       />
+
       <span
-        className="truncate"
-        style={{ fontSize: 12, color: "var(--g-text-4)" }}
+        className="sheet-cell truncate"
+        style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
       >
         {child.note ?? ""}
       </span>
-      <span style={{ display: "flex", justifyContent: "center" }}>
+
+      <span
+        className="sheet-cell"
+        style={{ justifyContent: "center", borderRight: "none" }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
-          onClick={remove}
+          onClick={() => setConfirming(true)}
           title="Xoá đợt này"
-          style={{
-            display: "flex",
-            padding: 5,
-            borderRadius: 7,
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--g-text-4)",
-          }}
+          style={{ ...actionBtn, border: "none", background: "none" }}
         >
           <Trash2 size={13} />
         </button>
       </span>
+
+      <SheetProvider value>
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          danger
+          title={`Xoá "${child.label}"?`}
+          description={`Đợt ngày ${child.dateLabel} và toàn bộ số lượng của nó sẽ mất. Không hoàn tác được.`}
+          confirmLabel="Xoá"
+          onConfirm={remove}
+        />
+      </SheetProvider>
     </div>
   );
 }
 
-function StaticCell({ cell, col }: { cell: Cell; col: number }) {
-  const tone = toneOf(cell);
+function StaticCell({
+  cell,
+  col,
+  lit,
+}: {
+  cell: Cell;
+  col: number;
+  lit: string;
+}) {
   return (
     <span
-      className="glass-cell"
+      className="sheet-cell sheet-cell--num"
       data-col={col}
-      style={{ textAlign: "center", color: TONE_COLOR[tone] }}
+      style={{ color: cellColor(cell, lit) }}
     >
-      {cell.value || "—"}
+      {cell.value || "–"}
     </span>
   );
 }
 
 /**
- * Ô ngày sửa tại chỗ. Dùng cho ngày tạo LSX (dòng cha) và ngày của đợt.
- * Ở dòng cha phải chặn click nổi lên, không thì bảng đóng/mở dòng.
+ * Ô ngày sửa tại chỗ. Dùng cho ngày tạo LSX (dòng LSX) và ngày của đợt.
+ * Phải chặn click nổi lên, không thì bảng đóng/mở dòng.
  */
 function EditDateCell({
   iso,
@@ -1557,20 +1719,13 @@ function EditDateCell({
         autoFocus
         type="date"
         defaultValue={iso}
+        className="sheet-cell--input"
+        style={{ textAlign: "left", fontSize: 11.5 }}
         onClick={(e) => e.stopPropagation()}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           else if (e.key === "Escape") setEditing(false);
-        }}
-        style={{
-          width: "100%",
-          background: "rgba(255,255,255,0.1)",
-          border: "1px solid var(--g-accent)",
-          borderRadius: 7,
-          padding: "3px 4px",
-          fontSize: 11.5,
-          outline: "none",
         }}
       />
     );
@@ -1581,15 +1736,17 @@ function EditDateCell({
       role="button"
       tabIndex={0}
       title="Bấm để sửa ngày"
+      className="sheet-cell"
       onClick={(e) => {
         e.stopPropagation();
         setEditing(true);
       }}
       onKeyDown={(e) => e.key === "Enter" && setEditing(true)}
       style={{
-        fontSize: 12,
+        fontSize: 11.5,
         cursor: "pointer",
-        color: "var(--g-text-3)",
+        whiteSpace: "nowrap",
+        color: "var(--s-ink-2)",
         opacity: pending ? 0.4 : 1,
       }}
     >
@@ -1607,16 +1764,20 @@ function EditCell({
   cell,
   col,
   rowId,
+  lit,
   save,
 }: {
   cell: Cell;
   col: number;
   rowId: string;
+  lit: string;
   save: (qty: number) => Promise<CellResult>;
 }) {
   const router = useRouter();
   const nav = useContext(NavCtx);
   const [draft, setDraft] = useState("");
+  /** Lượt sửa trước đó — để nhận ra đúng lúc ô vừa mở ra. */
+  const [wasEditing, setWasEditing] = useState(false);
   const [pending, start] = useTransition();
   // Escape phải huỷ được, nhưng onBlur luôn chạy sau onKeyDown — dùng cờ để
   // onBlur biết là người dùng đã bỏ ý định sửa.
@@ -1630,28 +1791,34 @@ function EditCell({
   const focused = nav.at(rowId, col);
   const editing = focused && nav.editing;
 
-  // Mỗi lần ô mở ra là một lượt sửa mới: nạp lại nháp, xoá mọi cờ của lượt trước.
-  useEffect(() => {
-    if (!editing) return;
-    cancelled.current = false;
-    committed.current = false;
-    setDraft(seed.current ?? (cell.value ? String(cell.value) : ""));
-    seed.current = null;
-    // `cell.value` cố ý không nằm trong deps: server refresh giữa chừng mà nạp
-    // lại nháp thì chữ đang gõ dở bị nuốt.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing]);
-
-  const tone = toneOf(cell);
+  /**
+   * Mỗi lần ô mở ra là một lượt sửa mới: nạp lại nháp, xoá mọi cờ của lượt trước.
+   *
+   * Nạp ngay trong lúc render chứ KHÔNG trong `useEffect`. Bảng lấy nét cho ô
+   * rồi `select()` bôi đen nội dung ở effect của nó; effect của con chạy trước
+   * effect của cha, nhưng `setDraft` ở đó lại đẻ thêm một lượt render nữa — lượt
+   * đó đổi value của input từ "" thành "600" SAU khi đã bôi đen, và trình duyệt
+   * dụi sạch vùng chọn, đẩy con trỏ về cuối. Gõ tiếp là nối thêm vào số cũ
+   * ("600" + "607" = "600607") thay vì thay nó.
+   */
+  if (editing !== wasEditing) {
+    setWasEditing(editing);
+    if (editing) {
+      cancelled.current = false;
+      committed.current = false;
+      setDraft(seed.current ?? (cell.value ? String(cell.value) : ""));
+      seed.current = null;
+    }
+  }
 
   if (cell.orderSizeId == null) {
     return (
       <span
-        className="glass-cell"
+        className="sheet-cell sheet-cell--num"
         data-col={col}
-        style={{ textAlign: "center", color: "var(--g-dim)" }}
+        style={{ color: "var(--s-dash)" }}
       >
-        —
+        –
       </span>
     );
   }
@@ -1683,6 +1850,7 @@ function EditCell({
         data-col={col}
         inputMode="numeric"
         value={draft}
+        className="sheet-cell--input"
         // Dòng cha có onClick mở/gập; không chặn thì bấm vào ô là gập dòng lại.
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ""))}
@@ -1733,16 +1901,6 @@ function EditCell({
           e.preventDefault();
           e.stopPropagation();
         }}
-        style={{
-          width: "100%",
-          textAlign: "center",
-          background: "rgba(255,255,255,0.1)",
-          border: "1px solid var(--g-accent)",
-          borderRadius: 7,
-          padding: "3px 2px",
-          fontSize: 12,
-          outline: "none",
-        }}
       />
     );
   }
@@ -1752,7 +1910,7 @@ function EditCell({
       role="button"
       tabIndex={nav.tabIndex(rowId, col)}
       title="Bấm để sửa"
-      className="glass-cell"
+      className="sheet-cell sheet-cell--num"
       data-col={col}
       data-focused={focused || undefined}
       onClick={(e) => {
@@ -1774,14 +1932,13 @@ function EditCell({
         e.stopPropagation();
       }}
       style={{
-        textAlign: "center",
         cursor: "pointer",
         outline: "none",
-        color: TONE_COLOR[tone],
+        color: cellColor(cell, lit),
         opacity: pending ? 0.4 : 1,
       }}
     >
-      {cell.value || "—"}
+      {cell.value || "–"}
     </span>
   );
 }
@@ -1803,11 +1960,11 @@ function NumInput({
   if (disabled) {
     return (
       <span
-        className="glass-cell"
+        className="sheet-cell sheet-cell--num"
         data-col={col}
-        style={{ textAlign: "center", color: "var(--g-dim)" }}
+        style={{ color: "var(--s-dash)" }}
       >
-        —
+        –
       </span>
     );
   }
@@ -1818,68 +1975,44 @@ function NumInput({
       inputMode="numeric"
       value={value}
       onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ""))}
-      style={{
-        width: "100%",
-        textAlign: "center",
-        background: "rgba(255,255,255,0.05)",
-        border: "1px dashed var(--g-line-3)",
-        borderRadius: 7,
-        padding: "6px 2px",
-        fontSize: 12,
-        outline: "none",
-      }}
+      className="sheet-cell--input"
+      style={{ boxShadow: "inset 0 0 0 1px var(--s-card-line)" }}
     />
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.05)",
-  border: "1px dashed rgba(255,255,255,0.18)",
-  borderRadius: 8,
-  padding: "6px 10px",
-  fontSize: 12,
-  outline: "none",
-  minWidth: 0,
-  width: "100%",
-};
-
-/** Dòng "+ Thêm ..." lúc chưa mở — bấm vào mới hiện các ô nhập. */
+/** Dòng "＋ Thêm ..." lúc chưa mở — bấm vào mới hiện các ô nhập. */
 function AddTrigger({
   label,
   indent,
-  span,
+  bg,
+  cols,
   onOpen,
 }: {
   label: string;
   indent: number;
-  span: number;
+  bg: string;
+  cols: number;
   onOpen: () => void;
 }) {
   return (
     <div
-      className="glass-row glass-hover"
+      className="sheet-row sheet-hover"
       onClick={onOpen}
-      style={{
-        padding: "7px 0",
-        alignItems: "center",
-        cursor: "pointer",
-        borderTop: "1px solid var(--g-line-1)",
-      }}
+      style={{ ["--row-bg" as string]: bg, cursor: "pointer" }}
     >
-      <span />
-      <span style={{ display: "flex", justifyContent: "center", color: "rgba(198,181,255,0.8)" }}>
-        <Plus size={14} />
-      </span>
       <span
-        style={{
-          gridColumn: `span ${span}`,
-          paddingLeft: indent,
-          fontSize: 12.5,
-          color: "rgba(198,181,255,0.8)",
-        }}
+        className="sheet-cell sheet-freeze"
+        style={{ gap: 7, paddingLeft: indent, color: "var(--s-faint)" }}
       >
-        {label}
+        <span style={{ width: 18, flexShrink: 0 }} />
+        <span style={{ fontSize: 12 }}>＋ {label}</span>
       </span>
+      {/* Một ô trải hết phần còn lại: dòng này không có số nào để canh cột. */}
+      <span
+        className="sheet-cell"
+        style={{ gridColumn: `2 / ${cols + 1}`, borderRight: "none" }}
+      />
     </div>
   );
 }
@@ -1887,19 +2020,14 @@ function AddTrigger({
 /** Nút huỷ ở cột cuối của dòng nhập. */
 function CancelBtn({ onClick }: { onClick: () => void }) {
   return (
-    <span style={{ display: "flex", justifyContent: "center" }}>
+    <span
+      className="sheet-cell"
+      style={{ justifyContent: "center", borderRight: "none" }}
+    >
       <button
         onClick={onClick}
         title="Huỷ"
-        style={{
-          display: "flex",
-          padding: 5,
-          borderRadius: 7,
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          color: "var(--g-text-4)",
-        }}
+        style={{ ...actionBtn, border: "none", background: "none" }}
       >
         <X size={13} />
       </button>
@@ -1937,9 +2065,10 @@ function AddPartRow({
   if (!open) {
     return (
       <AddTrigger
-        label="Thêm chi tiết..."
-        indent={28}
-        span={n + 8}
+        label="Thêm chi tiết…"
+        indent={INDENT.part}
+        bg={ROW_BG.part}
+        cols={n + 6}
         onOpen={() => nav.setAddOpen(addId)}
       />
     );
@@ -1972,11 +2101,9 @@ function AddPartRow({
 
   return (
     <div
-      className="glass-row glass-expand"
+      className="sheet-row sheet-expand"
       style={{
-        padding: "8px 0 4px",
-        alignItems: "center",
-        borderTop: "1px dashed var(--g-line-3)",
+        ["--row-bg" as string]: ROW_BG.part,
         opacity: pending ? 0.5 : 1,
       }}
       onKeyDown={(e) => {
@@ -1986,22 +2113,31 @@ function AddPartRow({
         } else if (e.key === "Escape") close();
       }}
     >
-      <span />
-      <span style={{ display: "flex", justifyContent: "center", color: "rgba(198,181,255,0.8)" }}>
-        <Plus size={15} />
+      <span
+        className="sheet-cell sheet-freeze"
+        style={{ gap: 7, paddingLeft: INDENT.part }}
+      >
+        <Plus size={14} style={{ flexShrink: 0, color: "var(--s-accent)" }} />
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Tên chi tiết…"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: "#fff",
+            border: "1px solid var(--s-card-line)",
+            borderRadius: 3,
+            padding: "3px 6px",
+            fontSize: 12.5,
+            outline: "none",
+          }}
+        />
       </span>
-      <input
-        autoFocus
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Tên chi tiết..."
-        style={{
-          ...inputStyle,
-          gridColumn: `span ${LABEL_SPAN}`,
-          marginLeft: 28,
-          fontSize: 13,
-        }}
-      />
+
+      <span className="sheet-cell" />
+
       {row.cells.map((c, i) => (
         <NumInput
           key={i}
@@ -2011,11 +2147,18 @@ function AddPartRow({
           onChange={(v) => setQty((s) => s.map((x, j) => (j === i ? v : x)))}
         />
       ))}
-      <span style={{ textAlign: "center", color: "var(--g-text-4)" }}>
-        {total || "—"}
+
+      <span
+        className="sheet-cell sheet-cell--num"
+        style={{ color: "var(--s-muted)" }}
+      >
+        {total || "–"}
       </span>
-      <span />
-      <span style={{ fontSize: 11.5, color: "var(--g-text-4)" }}>
+      <span className="sheet-cell" />
+      <span
+        className="sheet-cell"
+        style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
+      >
         Định mức · Enter lưu
       </span>
       <CancelBtn onClick={close} />
@@ -2029,12 +2172,14 @@ function AddBatchRow({
   columns,
   partId,
   indent,
+  bg,
   addId,
 }: {
   row: GridRow;
   columns: SizeColumn[];
   partId: number | null;
   indent: number;
+  bg: string;
   addId: string;
 }) {
   const router = useRouter();
@@ -2053,12 +2198,15 @@ function AddBatchRow({
     setQty(columns.map(() => ""));
   };
 
+  const isReceive = row.muc === "SEW_IN" || row.muc === "EMB_IN";
+
   if (!open) {
     return (
       <AddTrigger
-        label="Thêm đợt..."
+        label={isReceive ? "Thêm đợt nhận…" : "Thêm đợt gửi…"}
         indent={indent}
-        span={n + 8}
+        bg={bg}
+        cols={n + 6}
         onOpen={() => nav.setAddOpen(addId)}
       />
     );
@@ -2092,13 +2240,8 @@ function AddBatchRow({
 
   return (
     <div
-      className="glass-row glass-expand"
-      style={{
-        padding: "8px 0 4px",
-        alignItems: "center",
-        borderTop: "1px dashed var(--g-line-3)",
-        opacity: pending ? 0.5 : 1,
-      }}
+      className="sheet-row sheet-expand"
+      style={{ ["--row-bg" as string]: bg, opacity: pending ? 0.5 : 1 }}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
@@ -2106,20 +2249,16 @@ function AddBatchRow({
         } else if (e.key === "Escape") close();
       }}
     >
-      <span />
-      <span style={{ display: "flex", justifyContent: "center", color: "rgba(198,181,255,0.8)" }}>
-        <Plus size={15} />
-      </span>
       <span
-        style={{
-          gridColumn: `span ${LABEL_SPAN}`,
-          paddingLeft: indent,
-          fontSize: 13,
-          color: "var(--g-text-4)",
-        }}
+        className="sheet-cell sheet-freeze"
+        style={{ gap: 7, paddingLeft: indent, color: "var(--s-ink-2)" }}
       >
-        Đợt mới
+        <Plus size={14} style={{ flexShrink: 0, color: "var(--s-accent)" }} />
+        <span style={{ fontSize: 12 }}>Đợt mới</span>
       </span>
+
+      <span className="sheet-cell" />
+
       {row.cells.map((c, i) => (
         <NumInput
           key={i}
@@ -2130,21 +2269,35 @@ function AddBatchRow({
           onChange={(v) => setQty((s) => s.map((x, j) => (j === i ? v : x)))}
         />
       ))}
-      <span style={{ textAlign: "center", color: "var(--g-text-4)" }}>
-        {total || "—"}
+
+      <span
+        className="sheet-cell sheet-cell--num"
+        style={{ color: "var(--s-muted)" }}
+      >
+        {total || "–"}
       </span>
       <input
         type="date"
         value={date}
         onChange={(e) => setDate(e.target.value)}
         title="Ngày của đợt"
-        style={{ ...inputStyle, padding: "6px 6px" }}
+        className="sheet-cell--input"
+        style={{
+          textAlign: "left",
+          fontSize: 11.5,
+          boxShadow: "inset 0 0 0 1px var(--s-card-line)",
+        }}
       />
       <input
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder="Ghi chú"
-        style={inputStyle}
+        placeholder="Ghi chú · Enter lưu"
+        className="sheet-cell--input"
+        style={{
+          textAlign: "left",
+          fontSize: 11.5,
+          boxShadow: "inset 0 0 0 1px var(--s-card-line)",
+        }}
       />
       <CancelBtn onClick={close} />
     </div>

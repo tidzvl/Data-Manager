@@ -4,7 +4,7 @@ import FormModal from "@/components/ui/FormModal";
 
 /**
  * Bảng tra phím tắt (`?`). Chỉ để đọc — bảng này là bản mô tả, còn nơi thực thi
- * là `LsxGrid` và `GlassDashboard`. Sửa phím thì phải sửa cả hai chỗ.
+ * là `OrdersGrid` và `OrdersDashboard`. Sửa phím thì phải sửa cả hai chỗ.
  */
 const GROUPS: { title: string; keys: [string[], string][] }[] = [
   {
@@ -105,7 +105,7 @@ export default function HotkeyHelp({
     <FormModal
       open={open}
       onOpenChange={onOpenChange}
-      glass
+      sheet
       wide
       title="Phím tắt"
       description="Bấm ? bất cứ lúc nào để mở lại bảng này."

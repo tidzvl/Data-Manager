@@ -6,6 +6,7 @@ import {
   MUC_TYPES,
   type Cell,
   type GridChild,
+  type GridOrder,
   type GridPage,
   type GridRow,
   type GridSort,
@@ -337,6 +338,43 @@ function emptyCategoryRow(
   };
 }
 
+/**
+ * SL dự kiến của cả LSX theo từng cột size.
+ *
+ * Cột là nhãn size dùng chung, còn `OrderSize` lại thuộc về từng phân loại — nên
+ * một cột có thể gom nhiều phân loại lại. Cộng chúng vào nhau; phân loại nào
+ * không khai báo size đó thì đơn giản là không đóng góp gì.
+ */
+function planFor(order: OrderWithAll, cols: SizeColumn[]): number[] {
+  const byLabel = new Map<string, number>();
+  for (const cat of order.categories)
+    for (const s of cat.orderSizes)
+      byLabel.set(s.sizeLabel, (byLabel.get(s.sizeLabel) ?? 0) + s.targetQty);
+
+  return cols.map((c) => byLabel.get(c.label) ?? 0);
+}
+
+function buildOrder(
+  order: OrderWithAll,
+  cols: SizeColumn[],
+  rows: GridRow[]
+): GridOrder {
+  const plan = planFor(order, cols);
+  return {
+    key: `order-${order.id}`,
+    orderId: order.id,
+    code: order.code,
+    productName: order.productName,
+    lineName: order.line?.name ?? null,
+    note: order.note,
+    createdAt: fullDayLabel(order.createdAt),
+    createdAtIso: toDateStr(order.createdAt),
+    plan,
+    planTotal: sum(plan),
+    rows,
+  };
+}
+
 function orderByFor(
   sort: GridSort,
   dir: "asc" | "desc"
@@ -407,12 +445,21 @@ export async function getGridPage(
     take: perPage,
   });
 
-  const rows = applyMucFilter(
-    orders.flatMap((o) => buildRows(o, columns)),
-    opts.muc
-  );
+  // Lọc theo mục xong mới gói vào LSX: LSX nào không còn mục nào khớp thì
+  // không có gì để xem, bỏ hẳn khỏi bảng thay vì hiện một dòng cha rỗng.
+  const nodes = orders
+    .map((o) => buildOrder(o, columns, applyMucFilter(buildRows(o, columns), opts.muc)))
+    .filter((o) => !opts.muc || o.rows.length > 0);
 
-  return { columns, rows, total, page, perPage, totalPages };
+  return {
+    columns,
+    orders: nodes,
+    rowCount: sum(nodes.map((o) => o.rows.length)),
+    total,
+    page,
+    perPage,
+    totalPages,
+  };
 }
 
 /**

@@ -5,7 +5,7 @@ import { getGridPage } from "@/lib/grid";
 import { GRID_SORTS, MUC_TYPES, type GridSort } from "@/lib/grid-types";
 import ThemeToggle from "@/components/theme/ThemeToggle";
 import Pagination from "@/components/Pagination";
-import GlassDashboard from "@/components/glass/GlassDashboard";
+import OrdersDashboard from "@/components/sheet/OrdersDashboard";
 import SearchBar from "./SearchBar";
 import OrderList from "./OrderList";
 import RootFab from "./RootFab";
@@ -124,9 +124,9 @@ export default async function HomePage({
         <RootFab />
       </main>
 
-      {/* ---------- DESKTOP: bảng kính một trang ---------- */}
+      {/* ---------- DESKTOP: bảng LSX kiểu bảng tính ---------- */}
       <div className="hidden lg:block">
-        <GlassDashboard data={grid} />
+        <OrdersDashboard data={grid} />
       </div>
     </>
   );

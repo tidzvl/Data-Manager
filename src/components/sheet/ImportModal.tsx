@@ -146,7 +146,7 @@ export default function ImportModal({
     <FormModal
       open={open}
       onOpenChange={onOpenChange}
-      glass
+      sheet
       wide
       title="Nhập nhanh LSX"
       description="Dán các dòng từ sheet, soát lại rồi nhập."

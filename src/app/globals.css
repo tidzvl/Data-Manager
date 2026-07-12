@@ -198,132 +198,211 @@ body {
   border-left: 1px solid var(--dm-line);
 }
 
-/* ---- Bảng kính (desktop, chỉ tông tối) ----
-   Đặt ở :root chứ không ở .glass-scope, vì modal portal ra <body> nằm ngoài
-   scope. GlassDashboard ghi đè --g-blur/--g-tint/--g-opacity thẳng lên
-   documentElement khi người dùng kéo slider, nên panel và modal luôn khớp nhau. */
+/* ---- Bảng LSX kiểu Excel (desktop) ----
+   Bảng luôn ở tông sáng, không theo dark/light của app: đây là một "trang tính",
+   và bảng tính thì màu của nó là một phần của ngữ nghĩa (cam = kế hoạch, xanh =
+   đã nhận). Token đặt ở :root vì modal portal ra <body>, ngoài .sheet-scope. */
 :root {
-  --g-blur: 22px;
-  --g-tint: 38, 28, 64;
-  --g-opacity: 0.42;
+  --s-accent: #217346;
+  /* Dải "SỐ LƯỢNG THEO SIZE" — chính là accent sáng lên ~1.18 lần. */
+  --s-accent-dim: color-mix(in srgb, var(--s-accent) 82%, white);
+  --s-accent-ink: #eaf3e4;
 
-  --g-text-2: rgba(255, 255, 255, 0.75);
-  --g-text-3: rgba(255, 255, 255, 0.55);
-  --g-text-4: rgba(255, 255, 255, 0.5);
-  --g-dim: rgba(255, 255, 255, 0.25);
-  --g-accent: #c6b5ff;
-  /* Chưa đủ định mức — cam đỏ, đủ tương phản trên nền tím than */
-  --g-short: #ff9d7a;
+  --s-page: #dfe3e0;
+  --s-card: #ffffff;
+  --s-card-line: #b7beb8;
+  --s-bar: #f2f5f1;
+  --s-bar-line: #cdd3cd;
 
-  --g-line-1: rgba(255, 255, 255, 0.05);
-  --g-line-2: rgba(255, 255, 255, 0.09);
-  --g-line-3: rgba(255, 255, 255, 0.12);
-  --g-line-4: rgba(255, 255, 255, 0.14);
-  --g-fill: rgba(255, 255, 255, 0.08);
+  --s-ink: #1f2a24;
+  --s-ink-2: #54605a;
+  --s-muted: #8a938c;
+  --s-faint: #9aa39c;
+
+  /* Kẻ ô: dọc ngoài đậm hơn dọc trong, ngang nhạt nhất — đúng cảm giác của Excel. */
+  --s-line: #c8ccc6;
+  --s-line-in: #e2e6e1;
+  --s-line-h: #dfe3df;
+  --s-dash: #c6ccc4;
+
+  /* Tầng 1 — SL dự kiến. */
+  --s-plan: #b45309;
+  --s-plan-bg: #fff7ed;
+  /* Tầng 2 — SL của mục. */
+  --s-recv: #166534;
+  --s-recv-bg: #e3f0da;
+  /* Chưa đủ định mức. */
+  --s-short: #b91c1c;
+
+  /* Nền theo tầng; `banded` tắt thì nhạt gần như trắng. */
+  --s-band-2: #eef5e9;
+  --s-band-3: #f6faf3;
+  --s-band-4: #fbfdfa;
+
+  --s-pad: 8px 10px;
+  --s-head-h: 35px;
 }
 
-.glass-scope {
-  font-family: var(--font-poppins), var(--font-sans);
-  color: #fff;
+/* Chế độ gọn: đệm hẹp lại, và hàng size của header phải trượt lên theo. */
+.sheet-scope[data-compact="1"] {
+  --s-pad: 5px 8px;
+  --s-head-h: 31px;
+}
+.sheet-scope[data-banded="0"] {
+  --s-band-2: #f7faf5;
+  --s-band-3: #fbfdfa;
+  --s-band-4: #ffffff;
 }
 
-.glass-panel {
-  background: rgba(var(--g-tint), var(--g-opacity));
-  /* Chỉ khai thuộc tính chuẩn: viết kèm `-webkit-` y hệt thì trình minify
-     (Lightning CSS) khử trùng lặp, giữ nhầm bản `-webkit-` rồi vứt bản chuẩn —
-     mà Chromium hiện tại đã bỏ alias `-webkit-`, thành ra mất mờ ở bản build.
-     Để Lightning tự thêm tiền tố cho Safari theo browserslist. */
-  backdrop-filter: blur(var(--g-blur)) saturate(140%);
-  border: 1px solid var(--g-line-4);
-  box-shadow:
-    0 30px 80px rgba(20, 10, 50, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+.sheet-scope {
+  font-family: "Segoe UI", Calibri, -apple-system, system-ui, sans-serif;
+  color: var(--s-ink);
+  background: var(--s-page);
+  /* Bảng luôn sáng, kể cả khi app đang ở theme tối. Không khai ở đây thì
+     checkbox và lịch của <input type=date> do trình duyệt vẽ vẫn theo
+     `color-scheme: dark` của :root — ô tick hiện ra thành ô vuông đen. */
+  color-scheme: light;
 }
 
-/* Header, dòng cha và mọi dòng con dùng chung một grid để canh cột. */
-.glass-row {
+.sheet-card-outer {
+  background: var(--s-card);
+  border: 1px solid var(--s-card-line);
+  border-radius: 4px;
+  box-shadow: 0 10px 34px rgba(31, 42, 36, 0.16);
+  overflow: hidden;
+}
+
+/* Header và mọi dòng dùng chung một grid để canh cột. Không có `gap`: kẻ ô của
+   Excel là border của từng ô, khe hở sẽ làm đứt nét kẻ.
+
+   Nền đi qua `--row-bg` chứ không đặt thẳng bằng style inline: cột A đóng băng
+   lấy nền bằng `inherit` nên mọi dòng BUỘC phải có nền đục, mà nền inline lại
+   thắng cả `:hover` và `:focus` — dòng sẽ chết cứng một màu. */
+.sheet-row {
   display: grid;
   grid-template-columns: var(--grid-cols);
-  gap: 8px;
+  position: relative;
+  z-index: 1;
+  background: var(--row-bg, var(--s-card));
+  border-bottom: 1px solid var(--s-line-h);
 }
 
-/* Sáng nhẹ khi rê chuột. Bo góc để vệt sáng không chạm mép khối kính. */
-.glass-hover {
-  border-radius: 8px;
-  transition: background-color 0.12s ease;
+/* Mọi ô: kẻ dọc bên phải + đệm. Ô số dùng nét nhạt hơn (`--s-line-in`). */
+.sheet-cell {
+  padding: var(--s-pad);
+  border-right: 1px solid var(--s-line);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
 }
-.glass-hover:hover {
-  background: rgba(255, 255, 255, 0.06);
+.sheet-cell--num {
+  border-right: 1px solid var(--s-line-in);
+  justify-content: flex-end;
+  text-align: right;
 }
 
-/* Highlight cả cột: một dải chạy suốt chiều cao bảng, nằm SAU các dòng.
-   Vị trí/bề rộng do LsxGrid đo từ ô đang trỏ rồi ghi vào --col-* / --edit-*,
-   nên không phải render lại hàng nghìn ô mỗi lần con trỏ đổi cột. */
-.glass-colband {
+/* Ô số lúc mở sửa. Là con trực tiếp của lưới (không bọc thêm span) để nó chiếm
+   đúng ô cũ — bọc thêm một lớp là số bị lệch khỏi cột đúng lúc đang gõ. */
+.sheet-cell--input {
+  padding: var(--s-pad);
+  border: none;
+  border-right: 1px solid var(--s-line-in);
+  box-shadow: inset 0 0 0 2px var(--s-accent);
+  width: 100%;
+  min-width: 0;
+  background: #fff;
+  text-align: right;
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+/* Cột A đóng băng khi cuộn ngang. Nền `inherit` để nó luôn cùng màu với dòng
+   đang chứa nó (trắng / xanh nhạt / hover / đang chọn) mà không phải khai lại
+   từng tầng — nhưng vì thế MỌI dòng buộc phải có nền đục, nếu không cột A sẽ
+   trong suốt và chữ bên dưới lòi qua. */
+.sheet-freeze {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: inherit;
+  box-shadow: 2px 0 0 rgba(31, 42, 36, 0.05);
+}
+
+/* Header dính đỉnh. Nằm trong CÙNG vùng cuộn với thân bảng, nên cột A của nó
+   vừa dính đỉnh vừa dính trái — đó là ô góc, phải nổi trên tất cả. */
+.sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--s-accent);
+  color: #fff;
+  border-bottom: none;
+}
+.sheet-head .sheet-cell {
+  border-right-color: rgba(255, 255, 255, 0.16);
+  white-space: nowrap;
+}
+.sheet-head .sheet-freeze {
+  z-index: 6;
+  box-shadow: 2px 0 0 rgba(31, 42, 36, 0.08);
+}
+.sheet-head--sizes {
+  background: var(--s-accent-dim);
+  color: var(--s-accent-ink);
+}
+
+/* Highlight cả cột: một dải chạy suốt chiều cao bảng. Dòng ở đây có nền ĐỤC nên
+   dải phải nằm TRÊN dòng (z 3) và trong suốt, chứ không núp phía sau như ở bản
+   kính cũ. Vẫn dưới cột A (z 4) để không phủ lên phần đóng băng.
+   Vị trí do OrdersGrid đo từ ô mẫu rồi ghi vào --col-* / --edit-*, nên đổi cột
+   không phải render lại hàng nghìn ô. */
+.sheet-colband {
   position: absolute;
   top: 0;
   bottom: 0;
-  z-index: 0;
+  z-index: 3;
   pointer-events: none;
-  border-radius: 8px;
   opacity: 0;
   transition: opacity 0.1s ease;
 }
-/* Dòng nổi lên trên dải, nếu không dải sẽ phủ mất chữ. */
-.glass-row {
-  position: relative;
-  z-index: 1;
-}
-
-.glass-colband--hover {
+.sheet-colband--hover {
   left: var(--col-x, 0);
   width: var(--col-w, 0);
-  background: rgba(255, 255, 255, 0.055);
+  background: rgba(33, 115, 70, 0.06);
 }
-[data-hovercol] .glass-colband--hover {
+[data-hovercol] .sheet-colband--hover {
   opacity: 1;
 }
-
-.glass-colband--edit {
+.sheet-colband--edit {
   left: var(--edit-x, 0);
   width: var(--edit-w, 0);
-  background: rgba(198, 181, 255, 0.14);
+  background: rgba(33, 115, 70, 0.1);
 }
-[data-editcol] .glass-colband--edit {
+[data-editcol] .sheet-colband--edit {
   opacity: 1;
 }
 
-/* Con trỏ bàn phím. Dòng và ô đều nhận nét thật (tabindex), nên bám vào :focus
-   thay vì một class do state vẽ ra — DOM và con trỏ không thể lệch nhau.
-   Ô dùng data-focused: lúc mở sửa, nét nằm ở <input> chứ không ở <span>. */
-.glass-scope .glass-row[data-nav]:focus {
-  background: rgba(198, 181, 255, 0.1);
-  box-shadow: inset 0 0 0 1px var(--g-accent);
-  border-radius: 8px;
+.sheet-hover {
+  transition: background-color 0.1s ease;
 }
-.glass-scope .glass-cell[data-focused] {
-  background: rgba(198, 181, 255, 0.14);
-  box-shadow: inset 0 0 0 1px var(--g-accent);
-  border-radius: 7px;
+.sheet-hover:hover {
+  background: #f0f6ee;
 }
 
-@keyframes glass-expand {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+/* Con trỏ bàn phím bám vào :focus thật (dòng và ô đều có tabindex), nên DOM và
+   con trỏ không thể lệch nhau. Ô dùng data-focused: lúc mở sửa, nét nằm ở
+   <input> chứ không ở <span>. */
+.sheet-scope .sheet-row[data-nav]:focus {
+  outline: none;
+  background: #e8f2e6;
 }
-.glass-expand {
-  animation: glass-expand 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
-  transform-origin: top;
+.sheet-scope .sheet-cell[data-focused] {
+  box-shadow: inset 0 0 0 2px var(--s-accent);
 }
 
-/* Dòng con hiện lần lượt, tạo cảm giác đổ xuống. */
-@keyframes glass-row-in {
+@keyframes sheet-expand {
   from {
     opacity: 0;
     transform: translateY(-4px);
@@ -333,112 +412,84 @@ body {
     transform: none;
   }
 }
-.glass-row-in {
-  animation: glass-row-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+.sheet-expand {
+  animation: sheet-expand 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Card kính cho modal. Portal ra ngoài .glass-scope nên tự khai báo lại.
+.sheet-scope input,
+.sheet-scope select,
+.sheet-scope button {
+  font-family: inherit;
+  color: var(--s-ink);
+}
+.sheet-scope input::placeholder {
+  color: var(--s-faint);
+}
+.sheet-scope input[type="date"] {
+  color-scheme: light;
+}
+/* Thanh cuộn kiểu Excel: con trượt dày, có viền cùng màu rãnh. */
+.sheet-scope ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+.sheet-scope ::-webkit-scrollbar-thumb {
+  background: #c1c7c2;
+  border: 3px solid #eef1ee;
+  border-radius: 8px;
+}
+.sheet-scope ::-webkit-scrollbar-track {
+  background: #eef1ee;
+}
+.sheet-scope button:focus-visible,
+.sheet-scope input:focus-visible,
+.sheet-scope select:focus-visible {
+  outline: 2px solid var(--s-accent);
+  outline-offset: 1px;
+}
+
+/* Card cho modal mở từ bảng. Portal ra ngoài .sheet-scope nên tự khai lại token.
    Ruột modal (LinesManager, CatalogManager, OrderForm…) dùng utility của app;
-   nhờ `@theme inline`, `bg-surface` biên dịch thành `var(--dm-surface)` — nên
-   chỉ cần ghi đè bảng token ngay tại đây là chúng đổi theo tông kính, không
-   phải sửa từng component. */
-.glass-card {
-  /* Cùng tint và cùng các slider với khối chính, nhưng đặc hơn một bậc: form
-     phải đọc được, và nó nằm chồng lên bảng chứ không phải lên ảnh nền. */
-  background: rgba(var(--g-tint), clamp(0.78, calc(var(--g-opacity) + 0.45), 0.97));
-  /* Chỉ thuộc tính chuẩn — xem ghi chú ở .glass-panel. */
-  backdrop-filter: blur(calc(var(--g-blur) + 8px)) saturate(140%);
-  border: 1px solid var(--g-line-4);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-  font-family: var(--font-poppins), var(--font-sans);
-  color: #fff;
-  color-scheme: dark;
+   nhờ `@theme inline`, `bg-surface` biên dịch thành `var(--dm-surface)` — nên chỉ
+   cần ghi đè bảng token ngay tại đây là chúng đổi sang tông trang tính, không
+   phải sửa từng component. Kể cả khi app đang ở theme tối. */
+.sheet-card {
+  background: var(--s-card);
+  border: 1px solid var(--s-card-line);
+  box-shadow: 0 24px 60px rgba(31, 42, 36, 0.3);
+  font-family: "Segoe UI", Calibri, -apple-system, system-ui, sans-serif;
+  color: var(--s-ink);
+  color-scheme: light;
 
-  /* Thanh nút dính đáy form phải che được nội dung cuộn qua bên dưới, nên
-     không thể trong suốt — dùng tint đặc. */
-  --dm-paper: rgba(var(--g-tint), 0.97);
-  --dm-surface: rgba(255, 255, 255, 0.055);
-  --dm-surface-2: rgba(255, 255, 255, 0.1);
-  --dm-ink: #ffffff;
-  --dm-muted: rgba(255, 255, 255, 0.62);
-  --dm-faint: rgba(255, 255, 255, 0.38);
-  --dm-line: rgba(255, 255, 255, 0.14);
-  --dm-hairline: rgba(255, 255, 255, 0.08);
+  --dm-paper: #ffffff;
+  --dm-surface: #f7faf5;
+  --dm-surface-2: #eef5e9;
+  --dm-ink: var(--s-ink);
+  --dm-muted: var(--s-ink-2);
+  --dm-faint: var(--s-muted);
+  --dm-line: var(--s-bar-line);
+  --dm-hairline: rgba(255, 255, 255, 0.7);
 
-  /* Cyan của app quá chói trên nền tím than — đổi sang tím nhạt của bảng kính. */
-  --dm-brand: #c6b5ff;
-  --dm-brand-fg: #241a3d;
-  --dm-brand-soft: rgba(198, 181, 255, 0.16);
-  --dm-brand-line: rgba(198, 181, 255, 0.45);
+  --dm-brand: var(--s-accent);
+  --dm-brand-fg: #ffffff;
+  --dm-brand-soft: rgba(33, 115, 70, 0.1);
+  --dm-brand-line: rgba(33, 115, 70, 0.4);
 
-  /* Các màu trạng thái hạ bão hoà cho khớp tông. */
-  --dm-ok: #9de5b8;
-  --dm-ok-soft: rgba(157, 229, 184, 0.14);
-  --dm-warn: #ffd79a;
-  --dm-warn-soft: rgba(255, 215, 154, 0.14);
-  --dm-short: #ff9d7a;
-  --dm-short-soft: rgba(255, 157, 122, 0.14);
+  --dm-ok: var(--s-recv);
+  --dm-ok-soft: rgba(22, 101, 52, 0.1);
+  --dm-warn: var(--s-plan);
+  --dm-warn-soft: rgba(180, 83, 9, 0.1);
+  --dm-short: var(--s-short);
+  --dm-short-soft: rgba(185, 28, 28, 0.1);
 
-  --dm-shadow: rgba(0, 0, 0, 0.4);
+  --dm-shadow: rgba(31, 42, 36, 0.12);
   --dm-glow: transparent;
 }
 
-/* Header bảng là `position: sticky` nên buộc phải có nền che dòng cuộn qua.
-   Dùng chính tint của card, gần đục, thay vì `--dm-surface` gần trong suốt. */
-.glass-card .dt thead th {
-  background: rgba(var(--g-tint), 0.97);
-  color: rgba(255, 255, 255, 0.55);
-}
-.glass-card .dt tbody tr:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-/* Bề mặt lồng trong card (section, input) cần sáng hơn card một chút thì mới
-   tách lớp được — nền card đã gần đục. */
-.glass-card .panel {
-  box-shadow: inset 0 1px 0 0 var(--dm-hairline);
-}
-
-.glass-scope input,
-.glass-scope select,
-.glass-scope button {
-  font-family: inherit;
-  color: #fff;
-}
-.glass-scope input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
-}
-/* Menu của <select> do trình duyệt vẽ, lấy màu từ chính thẻ select. Nền của
-   select là màu trong suốt, còn `color-scheme: dark` khiến menu nền tối — nếu
-   không chỉ định màu đặc ở đây thì chữ và nền menu trùng nhau, chỉ đọc được
-   dòng đang rê chuột. */
-.glass-scope select option,
-.glass-card select option {
-  background-color: #241a3d;
-  color: #fff;
-}
-.glass-scope input[type="date"] {
-  color-scheme: dark;
-}
-.glass-scope input[type="range"] {
-  accent-color: var(--g-accent);
-}
-.glass-scope ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.glass-scope ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-}
-.glass-scope ::-webkit-scrollbar-track {
-  background: transparent;
-}
-.glass-scope button:focus-visible,
-.glass-scope input:focus-visible,
-.glass-scope select:focus-visible {
-  outline: 2px solid var(--g-accent);
-  outline-offset: 1px;
+/* Header bảng `.dt` là sticky nên buộc phải có nền đục che dòng cuộn qua. */
+.sheet-card .dt thead th {
+  background: var(--s-bar);
+  color: var(--s-muted);
 }
 
 /* Thanh cuộn mảnh cho desktop */

@@ -13,15 +13,15 @@ export default function OrderFormModal({
   orderId,
   /** Sau khi tạo mới, điều hướng sang LSX vừa tạo thay vì chỉ refresh. */
   gotoAfterCreate,
-  /** Tông kính, khi mở từ bảng LSX trên desktop. */
-  glass,
+  /** Tông trang tính, khi mở từ bảng LSX trên desktop. */
+  sheet,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   /** Có = sửa LSX; không có = tạo mới. */
   orderId?: number;
   gotoAfterCreate?: boolean;
-  glass?: boolean;
+  sheet?: boolean;
 }) {
   const router = useRouter();
   const [data, setData] = useState<OrderFormData | null>(null);
@@ -51,7 +51,7 @@ export default function OrderFormModal({
     <FormModal
       open={open}
       onOpenChange={onOpenChange}
-      glass={glass}
+      sheet={sheet}
       title={orderId ? "Sửa lệnh sản xuất" : "Tạo lệnh sản xuất"}
       description={
         orderId

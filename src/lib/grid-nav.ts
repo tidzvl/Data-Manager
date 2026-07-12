@@ -1,10 +1,10 @@
 // Điều hướng bàn phím của bảng kính, tách hẳn khỏi React để kiểm chứng được.
-// LsxGrid render một cây; bàn phím lại cần một danh sách phẳng đúng bằng những
+// OrdersGrid render một cây; bàn phím lại cần một danh sách phẳng đúng bằng những
 // gì đang nhìn thấy. `buildNav` làm phép chiếu đó, phần còn lại chỉ là số học
 // trên danh sách ấy.
-import type { GridRow } from "./grid-types";
+import type { GridOrder } from "./grid-types";
 
-export type NavKind = "parent" | "part" | "batch";
+export type NavKind = "order" | "parent" | "part" | "batch";
 
 export type NavRow = {
   /** Trùng với `data-nav` trên DOM. */
@@ -32,82 +32,109 @@ export const ROW_LEVEL = -1;
  * Chiếu cây đang hiển thị thành danh sách phẳng. Dòng gập lại thì con của nó
  * không có mặt — mắt không thấy thì phím cũng không đi qua.
  *
- * Phải khớp từng nhánh với phần render của LsxGrid, kể cả cách ghép id của
- * `openParts` (`${row.key}/${part.key}`).
+ * `id` là đường dẫn từ gốc ("order-1/stage-2/part-3"), không phải key trần. Nhờ
+ * vậy `reanchor` chỉ cần cắt dần đuôi là leo được lên tổ tiên, và ba bảng `open*`
+ * không thể đụng key của nhau. Phải khớp từng nhánh với phần render của OrdersGrid.
  */
 export function buildNav(
-  rows: GridRow[],
+  orders: GridOrder[],
+  openOrders: Record<string, boolean>,
   openRows: Record<string, boolean>,
   openParts: Record<string, boolean>
 ): NavRow[] {
   const out: NavRow[] = [];
 
-  for (const row of rows) {
-    // Dòng giữ chỗ (chưa có mục) không mở ra được.
-    const open = !!openRows[row.key] && row.stageId > 0;
+  for (const order of orders) {
+    const orderOpen = !!openOrders[order.key] && order.rows.length > 0;
 
     out.push({
-      id: row.key,
-      kind: "parent",
-      rowKey: row.key,
-      selectable: true,
-      expandable: row.stageId > 0,
-      expanded: open,
+      id: order.key,
+      kind: "order",
+      rowKey: order.key,
+      // SL dự kiến sửa trong form LSX, không sửa ở bảng — nên dòng LSX không có
+      // ô nào nhập được và cũng không có checkbox (tick theo mục).
+      selectable: false,
+      expandable: order.rows.length > 0,
+      expanded: orderOpen,
       parentId: null,
-      // "Gửi may" lấy target từ tổng định mức chi tiết nên ô dòng cha chỉ đọc.
-      editable: row.cells.map(
-        (c) => row.editableTarget && c.orderSizeId != null
-      ),
+      editable: order.plan.map(() => false),
     });
 
-    if (!open) continue;
+    if (!orderOpen) continue;
 
-    if (row.muc === "SEW_OUT") {
-      for (const part of row.children) {
-        const partId = `${row.key}/${part.key}`;
-        const partOpen = !!openParts[partId];
+    for (const row of order.rows) {
+      const rowId = `${order.key}/${row.key}`;
+      // Dòng giữ chỗ (chưa có mục) không mở ra được.
+      const open = !!openRows[rowId] && row.stageId > 0;
 
-        out.push({
-          id: partId,
-          kind: "part",
-          rowKey: row.key,
-          selectable: false,
-          expandable: true,
-          expanded: partOpen,
-          parentId: row.key,
-          editable: part.cells.map((c) => c.orderSizeId != null),
-        });
+      out.push({
+        id: rowId,
+        kind: "parent",
+        rowKey: row.key,
+        selectable: true,
+        expandable: row.stageId > 0,
+        expanded: open,
+        parentId: order.key,
+        // "Gửi may" lấy target từ tổng định mức chi tiết nên ô dòng mục chỉ đọc.
+        editable: row.cells.map(
+          (c) => row.editableTarget && c.orderSizeId != null
+        ),
+      });
 
-        if (!partOpen) continue;
+      if (!open) continue;
 
-        for (const b of part.batches ?? [])
+      if (row.muc === "SEW_OUT") {
+        for (const part of row.children) {
+          const partId = `${rowId}/${part.key}`;
+          const partOpen = !!openParts[partId];
+
           out.push({
-            id: `${partId}/${b.key}`,
+            id: partId,
+            kind: "part",
+            rowKey: row.key,
+            selectable: false,
+            expandable: true,
+            expanded: partOpen,
+            parentId: rowId,
+            editable: part.cells.map((c) => c.orderSizeId != null),
+          });
+
+          if (!partOpen) continue;
+
+          for (const b of part.batches ?? [])
+            out.push({
+              id: `${partId}/${b.key}`,
+              kind: "batch",
+              rowKey: row.key,
+              selectable: false,
+              expandable: false,
+              expanded: false,
+              parentId: partId,
+              editable: b.cells.map((c) => c.orderSizeId != null),
+            });
+        }
+      } else {
+        for (const child of row.children)
+          out.push({
+            id: `${rowId}/${child.key}`,
             kind: "batch",
             rowKey: row.key,
             selectable: false,
             expandable: false,
             expanded: false,
-            parentId: partId,
-            editable: b.cells.map((c) => c.orderSizeId != null),
+            parentId: rowId,
+            editable: child.cells.map((c) => c.orderSizeId != null),
           });
       }
-    } else {
-      for (const child of row.children)
-        out.push({
-          id: `${row.key}/${child.key}`,
-          kind: "batch",
-          rowKey: row.key,
-          selectable: false,
-          expandable: false,
-          expanded: false,
-          parentId: row.key,
-          editable: child.cells.map((c) => c.orderSizeId != null),
-        });
     }
   }
 
   return out;
+}
+
+/** Cấp của một id, suy từ số đoạn: 0 = LSX, 1 = mục, 2 = chi tiết. */
+export function depthOf(id: string): number {
+  return id.split("/").length - 1;
 }
 
 export function indexOfRow(nav: NavRow[], id: string): number {

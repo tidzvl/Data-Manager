@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { AlertTriangle } from "lucide-react";
-import { surfaceClass, useGlass } from "./glass-context";
+import { surfaceClass, useSheet } from "./sheet-context";
 
 export default function ConfirmDialog({
   open,
@@ -23,13 +23,13 @@ export default function ConfirmDialog({
   danger?: boolean;
   onConfirm: () => void;
 }) {
-  const glass = useGlass();
+  const sheet = useSheet();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="anim-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
         <Dialog.Content
-          className={`anim-pop-center fixed left-1/2 top-1/2 z-50 w-[calc(100%-2.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl p-5 shadow-2xl outline-none ${surfaceClass(glass)}`}
+          className={`anim-pop-center fixed left-1/2 top-1/2 z-50 w-[calc(100%-2.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl p-5 shadow-2xl outline-none ${surfaceClass(sheet)}`}
         >
           <div className="flex items-start gap-3">
             {danger && (

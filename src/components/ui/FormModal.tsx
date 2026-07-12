@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import { GlassProvider } from "./glass-context";
+import { SheetProvider } from "./sheet-context";
 
 export default function FormModal({
   open,
@@ -10,8 +10,8 @@ export default function FormModal({
   title,
   description,
   children,
-  /** Tông kính, dùng cho các modal mở từ bảng LSX trên desktop. */
-  glass,
+  /** Tông trang tính, dùng cho các modal mở từ bảng LSX trên desktop. */
+  sheet,
   /** Card rộng hơn — cho các bảng nhiều cột. */
   wide,
 }: {
@@ -20,12 +20,12 @@ export default function FormModal({
   title: string;
   description?: string;
   children: React.ReactNode;
-  glass?: boolean;
+  sheet?: boolean;
   wide?: boolean;
 }) {
-  // .glass-card tự khai báo token của nó, không cần .glass-scope.
-  const card = glass
-    ? "glass-card sm:rounded-2xl"
+  // .sheet-card tự khai báo token của nó, không cần .sheet-scope.
+  const card = sheet
+    ? "sheet-card sm:rounded"
     : "bg-paper sm:rounded-2xl sm:border sm:border-line sm:shadow-2xl sm:shadow-black/40";
 
   return (
@@ -33,7 +33,7 @@ export default function FormModal({
       <Dialog.Portal>
         <Dialog.Overlay
           className={`anim-overlay fixed inset-0 z-50 backdrop-blur-sm ${
-            glass ? "bg-black/50" : "bg-black/60"
+            sheet ? "bg-[#1f2a24]/45" : "bg-black/60"
           }`}
         />
 
@@ -79,7 +79,7 @@ export default function FormModal({
             {/* overflow-x-hidden: chặn các phần tử -mx- bên trong tràn ngang.
                 Vùng cuộn ngang riêng (.xscroll) vẫn hoạt động bình thường. */}
             <div className="thin-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4 sm:px-5 sm:pb-4">
-              <GlassProvider value={!!glass}>{children}</GlassProvider>
+              <SheetProvider value={!!sheet}>{children}</SheetProvider>
             </div>
           </div>
         </Dialog.Content>

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<style>
+  body{margin:0;background:#dfe3e0;font-family:"Segoe UI",Calibri,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#1f2a24}
+  a{color:#217346;text-decoration:none}
+  a:hover{color:#185a37}
+  *{box-sizing:border-box}
+  .xl-scroll::-webkit-scrollbar{height:14px;width:14px}
+  .xl-scroll::-webkit-scrollbar-thumb{background:#c1c7c2;border:3px solid #eef1ee;border-radius:8px}
+  .xl-scroll::-webkit-scrollbar-track{background:#eef1ee}
+</style>
+</helmet>
+
+<div style="min-height:100vh;padding:22px 26px 40px;">
+  <div style="max-width:1560px;margin:0 auto;background:#fff;border:1px solid #b7beb8;border-radius:4px;box-shadow:0 10px 34px rgba(31,42,36,.16);overflow:hidden;">
+
+    <!-- Title bar -->
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;background:{{accent}};color:#fff;">
+      <div style="width:26px;height:26px;border-radius:4px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">▦</div>
+      <div style="font-size:17px;font-weight:700;letter-spacing:.2px;">Danh sách Lệnh sản xuất</div>
+      <div style="margin-left:auto;font-size:12px;opacity:.82;">Quản lý theo Lệnh · Mục · Đợt nhận</div>
+    </div>
+
+    <!-- Command bar -->
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 16px;background:#f2f5f1;border-bottom:1px solid #cdd3cd;">
+      <div style="position:relative;flex:0 0 300px;">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#8a938c;font-size:13px;">⌕</span>
+        <input value="2607020" placeholder="Tìm LSX, tên..." style="width:100%;padding:7px 10px 7px 28px;border:1px solid #b7beb8;border-radius:4px;font:inherit;font-size:13px;background:#fff;color:#1f2a24;outline:none;" />
+      </div>
+      <input type="text" value="" placeholder="mm/dd/yyyy" onFocus="{{focusDate}}" style="padding:7px 10px;border:1px solid #b7beb8;border-radius:4px;font:inherit;font-size:13px;background:#fff;color:#5a635c;width:140px;outline:none;" />
+      <select style="padding:7px 24px 7px 10px;border:1px solid #b7beb8;border-radius:4px;font:inherit;font-size:13px;background:#fff;color:#1f2a24;outline:none;">
+        <option>Nhận thêu</option><option>Nhận in</option><option>Tất cả</option>
+      </select>
+      <select style="padding:7px 24px 7px 10px;border:1px solid #b7beb8;border-radius:4px;font:inherit;font-size:13px;background:#fff;color:#1f2a24;outline:none;">
+        <option>50 LSX</option><option>100 LSX</option><option>200 LSX</option>
+      </select>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <button style="display:flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #b7beb8;border-radius:4px;background:#fff;font:inherit;font-size:13px;color:#1f2a24;cursor:pointer;">⭳ Xuất Excel</button>
+        <button style="display:flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #b7beb8;border-radius:4px;background:#fff;font:inherit;font-size:13px;color:#1f2a24;cursor:pointer;">⇪ Nhập nhanh</button>
+        <button style="display:flex;align-items:center;gap:6px;padding:7px 14px;border:1px solid {{accent}};border-radius:4px;background:{{accent}};font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;">＋ Tạo LSX</button>
+        <button style="width:34px;border:1px solid #b7beb8;border-radius:4px;background:#fff;font-size:14px;color:#5a635c;cursor:pointer;">⚙</button>
+      </div>
+    </div>
+
+    <!-- Grid -->
+    <div class="xl-scroll" style="overflow:auto;max-height:76vh;">
+      <table style="border-collapse:separate;border-spacing:0;width:100%;min-width:1300px;font-size:12.5px;">
+        <thead>
+          <tr>
+            <th rowspan="2" style="position:sticky;left:0;top:0;z-index:6;width:308px;min-width:308px;text-align:left;padding:{{thPad}};background:{{accent}};color:#fff;font-weight:600;border-right:1px solid rgba(255,255,255,.35);border-bottom:1px solid rgba(255,255,255,.35);box-shadow:2px 0 0 rgba(31,42,36,.08);">Lệnh SX · Mục · Đợt</th>
+            <th rowspan="2" style="position:sticky;top:0;z-index:5;width:118px;min-width:118px;text-align:left;padding:{{thPad}};background:{{accent}};color:#fff;font-weight:600;border-right:1px solid rgba(255,255,255,.35);border-bottom:1px solid rgba(255,255,255,.35);">Chuyền may</th>
+            <th colspan="11" style="position:sticky;top:0;z-index:5;text-align:center;padding:6px 8px;background:{{accentDim}};color:#fff;font-weight:600;letter-spacing:.4px;border-right:1px solid rgba(255,255,255,.35);border-bottom:1px solid rgba(255,255,255,.35);">SỐ LƯỢNG THEO SIZE</th>
+            <th rowspan="2" style="position:sticky;top:0;z-index:5;width:82px;min-width:82px;text-align:right;padding:{{thPad}};background:{{accent}};color:#fff;font-weight:700;border-right:1px solid rgba(255,255,255,.35);border-bottom:1px solid rgba(255,255,255,.35);">Tổng</th>
+            <th rowspan="2" style="position:sticky;top:0;z-index:5;width:150px;min-width:150px;text-align:left;padding:{{thPad}};background:{{accent}};color:#fff;font-weight:600;border-bottom:1px solid rgba(255,255,255,.35);">Ghi chú</th>
+          </tr>
+          <tr>
+            <sc-for list="{{sizeCols}}" as="sz" hint-placeholder-count="11">
+              <th style="position:sticky;top:{{szTop}};z-index:5;width:56px;min-width:56px;text-align:center;padding:5px 4px;background:{{accentDim}};color:#eaf3e4;font-weight:600;font-size:11px;border-right:1px solid rgba(255,255,255,.28);border-bottom:1px solid rgba(255,255,255,.35);">{{sz}}</th>
+            </sc-for>
+          </tr>
+        </thead>
+        <tbody>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+            <tr style="background:{{r.bg}};">
+              <!-- identity (sticky) -->
+              <td style="position:sticky;left:0;z-index:2;background:{{r.bg}};padding:{{r.pad}};padding-left:{{r.indent}};border-right:1px solid #c8ccc6;border-bottom:1px solid #dfe3df;box-shadow:2px 0 0 rgba(31,42,36,.05);white-space:nowrap;">
+                <div style="display:flex;align-items:center;gap:7px;">
+                  <sc-if value="{{r.canToggle}}" hint-placeholder-val="{{true}}">
+                    <button onClick="{{r.onToggle}}" style="width:18px;height:18px;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid #b7beb8;border-radius:3px;background:#fff;color:#3f4a43;font-size:9px;cursor:pointer;padding:0;line-height:1;">{{r.chev}}</button>
+                  </sc-if>
+                  <sc-if value="{{r.noToggle}}" hint-placeholder-val="{{true}}">
+                    <span style="width:18px;flex:none;"></span>
+                  </sc-if>
+                  <div style="min-width:0;">
+                    <div style="font-weight:{{r.mainWeight}};color:{{r.mainColor}};font-size:{{r.mainSize}};">{{r.main}}</div>
+                    <sc-if value="{{r.sub}}" hint-placeholder-val="x">
+                      <div style="font-size:11px;color:#8a938c;overflow:hidden;text-overflow:ellipsis;max-width:230px;">{{r.sub}}</div>
+                    </sc-if>
+                  </div>
+                </div>
+              </td>
+              <td style="padding:{{r.pad}};color:#54605a;border-right:1px solid #e2e6e1;border-bottom:1px solid #dfe3df;white-space:nowrap;">{{r.chuyen}}</td>
+              <sc-for list="{{r.cells}}" as="c" hint-placeholder-count="11">
+                <td style="padding:{{r.pad}};text-align:right;font-variant-numeric:tabular-nums;color:{{c.color}};background:{{c.bg}};border-right:1px solid #e2e6e1;border-bottom:1px solid #dfe3df;">{{c.text}}</td>
+              </sc-for>
+              <td style="padding:{{r.pad}};text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:{{r.tongColor}};background:{{r.tongBg}};border-right:1px solid #c8ccc6;border-bottom:1px solid #dfe3df;">{{r.tong}}</td>
+              <td style="padding:{{r.pad}};color:#8a938c;font-size:11px;border-bottom:1px solid #dfe3df;white-space:nowrap;">{{r.note}}</td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Footer -->
+    <div style="display:flex;align-items:center;gap:14px;padding:9px 16px;background:#f2f5f1;border-top:1px solid #cdd3cd;font-size:12px;color:#54605a;">
+      <span><b style="color:#1f2a24;">{{orderCount}}</b> lệnh sản xuất</span>
+      <span style="color:#c1c7c2;">|</span>
+      <span><b style="color:#1f2a24;">{{rowCount}}</b> dòng hiển thị</span>
+      <span style="margin-left:auto;color:#8a938c;">Nhấp ▸ để xem Mục → Đợt nhận</span>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:720},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#217346&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#217346&quot;,&quot;#375623&quot;,&quot;#1f6feb&quot;,&quot;#7e22ce&quot;,&quot;#9a3412&quot;],&quot;section&quot;:&quot;Giao diện&quot;},&quot;compact&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Giao diện&quot;},&quot;banded&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Giao diện&quot;}}">
+class Component extends DCLogic {
+  state = { openO: { o1: true }, openM: { o1m1: true }, openL: { o1m1a: true } };
+
+  data() {
+    return [
+      { id:'o1', lsx:'LSX2607020', ten:'Argentina Trắng Sọc Home 25/26', chuyen:'Mỹ Chi',
+        plan:{ s:200, m:600, l:600, xl:600, xxl:300 }, note:'12/07/2026',
+        mucs:[
+          { id:'o1m1', name:'Nhận thêu', loais:[
+              { id:'o1m1a', loai:'Áo', batches:[
+                  { id:'o1m1ab1', dot:'Đợt 1', date:'12/07', qty:{ m:591, l:597 } },
+                  { id:'o1m1ab2', dot:'Đợt 2', date:'—',     qty:{ s:120, m:9, l:3 } },
+              ]},
+              { id:'o1m1q', loai:'Quần', batches:[
+                  { id:'o1m1qb1', dot:'Đợt 1', date:'12/07', qty:{ s:80, m:200, l:150 } },
+              ]},
+          ]},
+        ]},
+      { id:'o2', lsx:'LSX2607021', ten:'Brazil Xanh Navy Away 25/26', chuyen:'Thu Hà',
+        plan:{ s:150, m:450, l:450, xl:300, xxl:150 }, note:'11/07/2026',
+        mucs:[
+          { id:'o2m1', name:'Nhận in', loais:[
+              { id:'o2m1a', loai:'Áo', batches:[
+                  { id:'o2m1ab1', dot:'Đợt 1', date:'11/07', qty:{ m:300, l:250 } },
+              ]},
+              { id:'o2m1q', loai:'Quần', batches:[] },
+          ]},
+        ]},
+      { id:'o3', lsx:'LSX2607022', ten:'Chile Đỏ Sọc Home 25/26', chuyen:'Mỹ Chi',
+        plan:{ m:400, l:400, xl:400, xxl:200 }, note:'10/07/2026',
+        mucs:[
+          { id:'o3m1', name:'Nhận thêu', loais:[
+              { id:'o3m1a', loai:'Áo', batches:[] },
+          ]},
+        ]},
+    ];
+  }
+
+  toggleO(id){ this.setState(s=>({ openO:{...s.openO,[id]:!s.openO[id]} })); }
+  toggleM(id){ this.setState(s=>({ openM:{...s.openM,[id]:!s.openM[id]} })); }
+  toggleL(id){ this.setState(s=>({ openL:{...s.openL,[id]:!s.openL[id]} })); }
+
+  sumBatches(item){
+    const t={}; item.batches.forEach(b=>{ for(const k in b.qty){ t[k]=(t[k]||0)+b.qty[k]; } }); return t;
+  }
+  total(obj){ let n=0; for(const k in obj) n+=obj[k]; return n; }
+
+  renderVals(){
+    const P = this.props||{};
+    const accent = P.accent ?? '#217346';
+    const accentDim = P.accent ? this._dim(P.accent) : '#2d8a56';
+    const compact = P.compact ?? false;
+    const banded = P.banded ?? true;
+    const pad = compact ? '5px 8px' : '8px 10px';
+    const SIZE = [
+      {k:'xxs',l:'1/XXS'},{k:'xs',l:'3/XS'},{k:'s',l:'S/5'},{k:'m',l:'M/7'},{k:'l',l:'L/9'},
+      {k:'xl',l:'XL/11'},{k:'xxl',l:'2XL/13'},{k:'x3',l:'3XL/15'},{k:'x4',l:'4XL'},{k:'x5',l:'5XL'},{k:'x6',l:'6XL'}
+    ];
+    const dash = '#c6ccc4';
+    const cellsFor = (obj, color) => SIZE.map(sz=>{
+      const v = obj[sz.k];
+      return v ? { text:String(v), color, bg:'transparent' } : { text:'–', color:dash, bg:'transparent' };
+    });
+
+    const rows = [];
+    const orders = this.data();
+    orders.forEach(o=>{
+      const oOpen = !!this.state.openO[o.id];
+      rows.push({
+        id:o.id, bg:'#ffffff', pad, indent:'12px',
+        canToggle:true, noToggle:false, chev: oOpen?'▾':'▸', onToggle:()=>this.toggleO(o.id),
+        main:o.lsx, mainWeight:700, mainColor:'#1f2a24', mainSize:'13px',
+        sub:o.ten, chuyen:o.chuyen, phanloai:'', tagStyle:'',
+        cells:cellsFor(o.plan,'#b45309'),
+        tong:String(this.total(o.plan)), tongColor:'#b45309', tongBg:'#fff7ed',
+        note:'Dự kiến · '+o.note,
+      });
+      if(!oOpen) return;
+      o.mucs.forEach(m=>{
+        m.loais.forEach(L=>{
+          const lOpen = !!this.state.openL[L.id];
+          const recv = this.sumBatches(L);
+          const hasB = L.batches.length>0;
+          rows.push({
+            id:L.id, bg: banded?'#eef5e9':'#f7faf5', pad, indent:'34px',
+            canToggle:hasB, noToggle:!hasB, chev: lOpen?'▾':'▸', onToggle:()=>this.toggleL(L.id),
+            main:m.name+' ('+L.loai+')', mainWeight:600, mainColor:'#2f3a34', mainSize:'12.5px',
+            sub:'', chuyen:'', phanloai:L.loai,
+            tagStyle:'display:inline-block;padding:2px 9px;border-radius:3px;font-size:11px;font-weight:600;'+(L.loai==='Áo'?'background:#dbeafe;color:#1e40af;':'background:#fde9d6;color:#9a3412;'),
+            cells:cellsFor(recv,'#166534'),
+            tong:String(this.total(recv)), tongColor:'#166534', tongBg:'#e3f0da',
+            note: hasB ? 'Đã nhận · '+L.batches.length+' đợt' : 'Chưa nhận',
+          });
+          if(!lOpen) return;
+          L.batches.forEach(b=>{
+            rows.push({
+              id:b.id, bg: banded?'#f6faf3':'#fbfdfa', pad, indent:'58px',
+              canToggle:false, noToggle:true, chev:'', onToggle:null,
+              main:b.dot, mainWeight:500, mainColor:'#54605a', mainSize:'12px',
+              sub:'', chuyen:b.date, phanloai:'', tagStyle:'',
+              cells:cellsFor(b.qty,'#1f2937'),
+              tong:String(this.total(b.qty)), tongColor:'#1f2a24', tongBg:'transparent',
+              note:'',
+            });
+          });
+          rows.push({
+            id:L.id+'-add', bg: banded?'#f6faf3':'#fbfdfa', pad, indent:'58px',
+            canToggle:false, noToggle:true, chev:'', onToggle:null,
+            main:'＋ Thêm đợt nhận…', mainWeight:400, mainColor:'#9aa39c', mainSize:'12px',
+            sub:'', chuyen:'', phanloai:'', tagStyle:'',
+            cells:SIZE.map(()=>({text:'',color:dash,bg:'transparent'})),
+            tong:'', tongColor:'#9aa39c', tongBg:'transparent', note:'',
+          });
+        });
+      });
+    });
+
+    return {
+      accent, accentDim,
+      thPad: compact ? '6px 8px' : '8px 10px',
+      szTop: compact ? '31px' : '35px',
+      sizeCols: SIZE.map(s=>s.l),
+      rows,
+      orderCount: orders.length,
+      rowCount: rows.filter(r=>!String(r.id).endsWith('-add')).length,
+      focusDate:(e)=>{ e.target.type='date'; },
+    };
+  }
+
+  _dim(hex){
+    try{
+      const h=hex.replace('#',''); const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+      const f=1.18; const c=v=>Math.min(255,Math.round(v*f));
+      return '#'+[c(r),c(g),c(b)].map(v=>v.toString(16).padStart(2,'0')).join('');
+    }catch(e){ return '#2d8a56'; }
+  }
+}
+</script>
+</body>
+</html>

@@ -1156,6 +1156,10 @@ function OrderRow({
         style={{ justifyContent: "center", gap: 6, borderRight: "none" }}
         onClick={(e) => e.stopPropagation()}
       >
+        <AddStageButton
+          groups={stageGroups(order.rows)}
+          title={`Thêm mục cho ${order.code}`}
+        />
         <button title="Chỉnh sửa LSX" onClick={onEdit} style={actionBtn}>
           <Pencil size={13} />
         </button>
@@ -1164,7 +1168,7 @@ function OrderRow({
   );
 }
 
-/** Tầng 2 — một mục của một phân loại: "Nhận thêu (Áo)". Ô số = SL kế hoạch. */
+/** Tầng 2 — một mục của một phân loại: "Nhận thêu (Áo)". Ô số = tổng các đợt. */
 function StageRow({
   row,
   navId,
@@ -1270,7 +1274,10 @@ function StageRow({
         style={{ justifyContent: "center", gap: 6, borderRight: "none" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <AddStageButton row={row} />
+        <AddStageButton
+          groups={stageGroups([row])}
+          title={`Thêm mục cho ${row.code} · ${row.categoryName}`}
+        />
         <button
           title={
             row.stageId > 0
@@ -1287,11 +1294,47 @@ function StageRow({
   );
 }
 
+/** Một phân loại còn thiếu mục, kèm chỗ để chép SL kế hoạch sang mục mới. */
+type StageGroup = {
+  categoryId: number;
+  categoryName: string;
+  missingMucs: MovementType[];
+  /** Một mục sẵn có của cùng phân loại, để `addStage` chép kế hoạch từ đó. */
+  sourceStageId?: number;
+};
+
 /**
- * Thêm một mục còn thiếu cho (LSX × phân loại) đang ở dòng này.
- * Dòng mục là bản ghi thật nên không tự có sẵn đủ bốn.
+ * Gom các dòng mục lại theo phân loại, chỉ giữ phân loại còn thiếu mục.
+ *
+ * Mọi dòng của cùng một phân loại đều mang chung `missingMucs`, nên lấy của dòng
+ * nào cũng được; thứ phải nhặt thêm là một `stageId` thật để chép kế hoạch.
  */
-function AddStageButton({ row }: { row: GridRow }) {
+function stageGroups(rows: GridRow[]): StageGroup[] {
+  const by = new Map<number, StageGroup>();
+  for (const r of rows) {
+    const g = by.get(r.categoryId) ?? {
+      categoryId: r.categoryId,
+      categoryName: r.categoryName,
+      missingMucs: r.missingMucs,
+    };
+    if (r.stageId > 0) g.sourceStageId ??= r.stageId;
+    by.set(r.categoryId, g);
+  }
+  return [...by.values()].filter((g) => g.missingMucs.length > 0);
+}
+
+/**
+ * Thêm một mục còn thiếu. Đặt ở cả dòng LSX (mọi phân loại) lẫn dòng mục (đúng
+ * phân loại của nó) — gập LSX lại thì vẫn phải thêm mục được, mà dòng mục thì
+ * lại là chỗ tay đang đứng sẵn.
+ */
+function AddStageButton({
+  groups,
+  title,
+}: {
+  groups: StageGroup[];
+  title: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
@@ -1299,6 +1342,9 @@ function AddStageButton({ row }: { row: GridRow }) {
   const [at, setAt] = useState<MenuPos | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  /** Một tiêu đề cho mỗi phân loại, cộng một dòng cho mỗi mục thiếu. */
+  const lines = groups.reduce((a, g) => a + 1 + g.missingMucs.length, 0);
 
   // Menu phải TREO RA `body`, không nằm trong dòng.
   //
@@ -1310,8 +1356,8 @@ function AddStageButton({ row }: { row: GridRow }) {
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) return;
-    // Ước lượng chiều cao: tiêu đề + mỗi mục một dòng. Không đủ chỗ bên dưới thì lật lên.
-    const h = 34 + row.missingMucs.length * 30;
+    // Ước lượng chiều cao rồi lật lên nếu bên dưới không đủ chỗ.
+    const h = 10 + lines * 28;
     const below = window.innerHeight - r.bottom;
     setAt({
       right: window.innerWidth - r.right,
@@ -1345,19 +1391,17 @@ function AddStageButton({ row }: { row: GridRow }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  if (row.missingMucs.length === 0) {
+  if (groups.length === 0) {
     // Giữ chỗ để các nút của mọi dòng luôn thẳng cột với nhau.
     return <span style={{ width: 26, flexShrink: 0 }} />;
   }
 
-  const add = (type: MovementType) =>
+  const add = (g: StageGroup, type: MovementType) =>
     start(async () => {
-      // Dòng giữ chỗ (stageId = 0) chưa có mục nào nên không có gì để chép.
-      const source = row.stageId > 0 ? row.stageId : undefined;
-      const res = await addStage(row.categoryId, type, source);
+      const res = await addStage(g.categoryId, type, g.sourceStageId);
       setOpen(false);
       if (res.ok) {
-        toast.success(`Đã thêm mục "${MUC_LABEL[type]}" cho ${row.categoryName}`);
+        toast.success(`Đã thêm mục "${MUC_LABEL[type]}" cho ${g.categoryName}`);
         router.refresh();
       } else toast.error(res.error ?? "Lỗi khi thêm mục.");
     });
@@ -1366,7 +1410,7 @@ function AddStageButton({ row }: { row: GridRow }) {
     <>
       <button
         ref={btnRef}
-        title={`Thêm mục cho ${row.code} · ${row.categoryName}`}
+        title={title}
         onClick={() => setOpen((v) => !v)}
         disabled={pending}
         style={{ ...actionBtn, color: "var(--s-accent)" }}
@@ -1395,40 +1439,49 @@ function AddStageButton({ row }: { row: GridRow }) {
               gap: 2,
             }}
           >
-            <div
-              style={{
-                fontSize: 10.5,
-                textTransform: "uppercase",
-                letterSpacing: ".4px",
-                color: "var(--s-muted)",
-                padding: "4px 8px 2px",
-              }}
-            >
-              Thêm mục · {row.categoryName}
-            </div>
-            {row.missingMucs.map((m) => (
-              <button
-                key={m}
-                onClick={() => add(m)}
-                disabled={pending}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  background: "none",
-                  border: "none",
-                  borderRadius: 3,
-                  padding: "6px 8px",
-                  fontSize: 12.5,
-                  textAlign: "left",
-                  cursor: pending ? "default" : "pointer",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#eef5e9")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-              >
-                <Plus size={12} style={{ color: "var(--s-accent)" }} />
-                {MUC_LABEL[m]}
-              </button>
+            {groups.map((g) => (
+              <div key={g.categoryId}>
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    textTransform: "uppercase",
+                    letterSpacing: ".4px",
+                    color: "var(--s-muted)",
+                    padding: "4px 8px 2px",
+                  }}
+                >
+                  Thêm mục · {g.categoryName}
+                </div>
+                {g.missingMucs.map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => add(g, m)}
+                    disabled={pending}
+                    style={{
+                      display: "flex",
+                      width: "100%",
+                      alignItems: "center",
+                      gap: 7,
+                      background: "none",
+                      border: "none",
+                      borderRadius: 3,
+                      padding: "6px 8px",
+                      fontSize: 12.5,
+                      textAlign: "left",
+                      cursor: pending ? "default" : "pointer",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = "#eef5e9")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "none")
+                    }
+                  >
+                    <Plus size={12} style={{ color: "var(--s-accent)" }} />
+                    {MUC_LABEL[m]}
+                  </button>
+                ))}
+              </div>
             ))}
           </div>,
           document.body

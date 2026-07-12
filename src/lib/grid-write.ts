@@ -52,16 +52,75 @@ export async function setStageTargetDb(
   return null;
 }
 
-/** Thêm một công đoạn cho phân loại. Trùng thì báo lỗi (unique categoryId+type). */
+/**
+ * SL kế hoạch của một công đoạn, theo từng size.
+ *
+ * "Gửi may" không có `StageTarget` của riêng nó — target của nó là tổng định mức
+ * các chi tiết, nên phải cộng `PartTarget` lại. Ba mục kia đọc thẳng bảng của
+ * mình. Cùng một phép suy với `targetFor` bên `grid.ts`.
+ */
+async function stageTargets(stageId: number): Promise<Map<number, number>> {
+  const stage = await prisma.stage.findUnique({
+    where: { id: stageId },
+    include: { targets: true },
+  });
+  if (!stage) return new Map();
+
+  if (stage.type !== "SEW_OUT")
+    return new Map(stage.targets.map((t) => [t.orderSizeId, t.targetQty]));
+
+  const parts = await prisma.partTarget.findMany({
+    where: { part: { categoryId: stage.categoryId } },
+  });
+  const out = new Map<number, number>();
+  for (const t of parts)
+    out.set(t.orderSizeId, (out.get(t.orderSizeId) ?? 0) + t.targetQty);
+  return out;
+}
+
+/**
+ * Thêm một công đoạn cho phân loại. Trùng thì báo lỗi (unique categoryId+type).
+ *
+ * `sourceStageId` là mục người dùng đang đứng lúc bấm "+": chép SL kế hoạch của
+ * nó sang mục mới, vì bốn mục của cùng một phân loại chạy nối tiếp nhau trên
+ * cùng lô hàng — gửi bao nhiêu thì nhận bấy nhiêu. Chép chứ không liên kết:
+ * người dùng sửa lại được từng ô, và mục cũ đổi sau đó thì mục mới không đổi theo.
+ *
+ * Không chép khi mục MỚI là "Gửi may": target của nó suy từ định mức các chi
+ * tiết (dùng chung cả phân loại) nên tự có sẵn, mà `StageTarget` của nó cũng bị
+ * tầng DB chặn ghi.
+ */
 export async function addStageDb(
   categoryId: number,
-  type: MovementType
+  type: MovementType,
+  sourceStageId?: number
 ): Promise<string | null> {
   const existing = await prisma.stage.findUnique({
     where: { categoryId_type: { categoryId, type } },
   });
   if (existing) return "Mục này đã có rồi.";
-  await prisma.stage.create({ data: { categoryId, type } });
+
+  // Chỉ nhận nguồn nằm trong cùng phân loại — id lạ thì bỏ qua, không chép bừa.
+  let targets = new Map<number, number>();
+  if (sourceStageId != null && type !== "SEW_OUT") {
+    const src = await prisma.stage.findUnique({ where: { id: sourceStageId } });
+    if (src?.categoryId === categoryId) targets = await stageTargets(sourceStageId);
+  }
+
+  const rows = [...targets].filter(([, qty]) => qty > 0);
+
+  await prisma.$transaction(async (tx) => {
+    const stage = await tx.stage.create({ data: { categoryId, type } });
+    if (rows.length === 0) return;
+    await tx.stageTarget.createMany({
+      data: rows.map(([orderSizeId, targetQty]) => ({
+        stageId: stage.id,
+        orderSizeId,
+        targetQty,
+      })),
+    });
+  });
+
   return null;
 }
 

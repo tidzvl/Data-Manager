@@ -100,12 +100,16 @@ export async function setStageTarget(
   return guard(() => setStageTargetDb(stageId, orderSizeId, qty));
 }
 
-/** Thêm một mục (công đoạn) cho phân loại. */
+/**
+ * Thêm một mục (công đoạn) cho phân loại.
+ * `sourceStageId` = mục đang bấm "+", để chép SL kế hoạch sang mục mới.
+ */
 export async function addStage(
   categoryId: number,
-  type: MovementType
+  type: MovementType,
+  sourceStageId?: number
 ): Promise<CellResult> {
-  return guard(() => addStageDb(categoryId, type));
+  return guard(() => addStageDb(categoryId, type, sourceStageId));
 }
 
 

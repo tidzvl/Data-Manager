@@ -1166,7 +1166,9 @@ function AddStageButton({ row }: { row: GridRow }) {
 
   const add = (type: MovementType) =>
     start(async () => {
-      const res = await addStage(row.categoryId, type);
+      // Dòng giữ chỗ (stageId = 0) chưa có mục nào nên không có gì để chép.
+      const source = row.stageId > 0 ? row.stageId : undefined;
+      const res = await addStage(row.categoryId, type, source);
       setOpen(false);
       if (res.ok) {
         toast.success(`Đã thêm mục "${MUC_LABEL[type]}" cho ${row.categoryName}`);

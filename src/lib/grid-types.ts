@@ -16,6 +16,20 @@ export const MUC_LABEL: Record<MovementType, string> = {
   EMB_IN: "Nhận thêu",
 };
 
+/**
+ * Nhãn hiển thị của một mục. `name` là nhãn ĐÈ LÊN nhãn mặc định của `type`,
+ * nên mục hệ thống đổi tên được mà vẫn giữ nguyên vai trò của nó trong luồng.
+ * Mục tự do không có `type`, nên `name` chính là tất cả những gì nó có.
+ */
+export function mucLabelOf(
+  type: MovementType | null,
+  name: string | null
+): string {
+  const custom = name?.trim();
+  if (custom) return custom;
+  return type ? MUC_LABEL[type] : "Mục mới";
+}
+
 /** Cột size: danh mục dùng chung, không phụ thuộc LSX. */
 export type SizeColumn = { id: number; label: string };
 
@@ -67,7 +81,8 @@ export type GridRow = {
   lineName: string | null;
   categoryId: number;
   categoryName: string;
-  muc: MovementType;
+  /** null = mục tự do: không thuộc luồng sản xuất, chỉ có đợt và số lượng. */
+  muc: MovementType | null;
   mucLabel: string;
   /** Các mục chưa có dòng nào của cùng (LSX × phân loại) — để nút "Thêm mục". */
   missingMucs: MovementType[];

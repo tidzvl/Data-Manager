@@ -12,13 +12,17 @@ import {
 import type { ImportDraft } from "@/lib/import-tsv";
 import {
   addBatchDb,
+  addCustomStageDb,
   addPartDb,
   addStageDb,
   deleteBatchDb,
   deleteRowsDb,
+  renameStageDb,
   setItemQtyDb,
   setMovementDateDb,
+  setMovementNoteDb,
   setOrderCreatedAtDb,
+  setOrderNoteDb,
   setPartTargetDb,
   setStageTargetDb,
   type DeleteSummary,
@@ -112,6 +116,43 @@ export async function addStage(
   return guard(() => addStageDb(categoryId, type, sourceStageId));
 }
 
+/** Thêm một mục tự do (chỉ có tên, không thuộc luồng sản xuất). */
+export async function addCustomStage(
+  categoryId: number,
+  name: string
+): Promise<CellResult> {
+  return guard(() => addCustomStageDb(categoryId, name));
+}
+
+/** Đổi tên một mục; tên rỗng ở mục hệ thống = trả về nhãn mặc định. */
+export async function renameStage(
+  stageId: number,
+  name: string
+): Promise<CellResult> {
+  return guard(() => renameStageDb(stageId, name));
+}
+
+/** Ghi chú của LSX. */
+export async function setOrderNote(
+  orderId: number,
+  note: string
+): Promise<CellResult> {
+  return guard(async () => {
+    await setOrderNoteDb(orderId, note);
+    return null;
+  });
+}
+
+/** Ghi chú của một đợt. */
+export async function setMovementNote(
+  movementId: number,
+  note: string
+): Promise<CellResult> {
+  return guard(async () => {
+    await setMovementNoteDb(movementId, note);
+    return null;
+  });
+}
 
 /** Sửa số lượng của 1 ô trong một đợt đã có. */
 export async function setItemQty(
@@ -126,9 +167,23 @@ export async function setItemQty(
   });
 }
 
-/** Thêm một đợt gửi/nhận mới (một Movement + các MovementItem). */
-export async function addBatch(input: NewBatchInput): Promise<CellResult> {
-  return guard(() => addBatchDb(input));
+/**
+ * Thêm một đợt mới. Trả về `movementId` để bảng thả con trỏ vào đúng dòng vừa
+ * tạo — không có nó thì sau `router.refresh()` người dùng phải tự đi tìm dòng
+ * mới của mình giữa một bảng đã cuộn đi đâu mất.
+ */
+export async function addBatch(
+  input: NewBatchInput
+): Promise<CellResult & { movementId?: number }> {
+  await requireSession();
+  try {
+    const res = await addBatchDb(input);
+    if ("error" in res) return { ok: false, error: res.error };
+    revalidatePath("/");
+    return { ok: true, movementId: res.id };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Lỗi khi lưu." };
+  }
 }
 
 /** Thêm một chi tiết (bán thành phẩm) mới kèm định mức. */

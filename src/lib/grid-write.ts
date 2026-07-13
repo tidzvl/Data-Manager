@@ -95,9 +95,7 @@ export async function addStageDb(
   type: MovementType,
   sourceStageId?: number
 ): Promise<string | null> {
-  const existing = await prisma.stage.findUnique({
-    where: { categoryId_type: { categoryId, type } },
-  });
+  const existing = await prisma.stage.findFirst({ where: { categoryId, type } });
   if (existing) return "Mục này đã có rồi.";
 
   // Chỉ nhận nguồn nằm trong cùng phân loại — id lạ thì bỏ qua, không chép bừa.
@@ -124,6 +122,72 @@ export async function addStageDb(
   return null;
 }
 
+/**
+ * Thêm một mục TỰ DO: chỉ có tên, không thuộc luồng sản xuất nào.
+ *
+ * `type` để null — nhờ vậy nó không lọt vào `bySize` của tiến độ, không có mặt
+ * trong bộ lọc mục, và `@@unique([categoryId, type])` không chặn: MySQL coi mỗi
+ * NULL là một giá trị riêng, nên thêm bao nhiêu mục tự do cũng được.
+ */
+export async function addCustomStageDb(
+  categoryId: number,
+  name: string
+): Promise<string | null> {
+  const label = name.trim();
+  if (!label) return "Nhập tên mục.";
+
+  const max = await prisma.stage.aggregate({
+    where: { categoryId },
+    _max: { position: true },
+  });
+  await prisma.stage.create({
+    data: {
+      categoryId,
+      type: null,
+      name: label,
+      position: (max._max.position ?? -1) + 1,
+    },
+  });
+  return null;
+}
+
+/**
+ * Đổi tên một mục.
+ *
+ * Mục hệ thống: tên rỗng nghĩa là trả về nhãn mặc định của `type` — người dùng
+ * xoá trắng ô là muốn bỏ cái tên mình đặt, không phải muốn một dòng không tên.
+ * Mục tự do thì tên là thứ duy nhất nhận ra nó, nên rỗng là lỗi.
+ */
+export async function renameStageDb(
+  stageId: number,
+  name: string
+): Promise<string | null> {
+  const stage = await prisma.stage.findUnique({ where: { id: stageId } });
+  if (!stage) return "Không tìm thấy mục.";
+
+  const label = name.trim();
+  if (!label && !stage.type) return "Mục tự do phải có tên.";
+
+  await prisma.stage.update({
+    where: { id: stageId },
+    data: { name: label || null },
+  });
+  return null;
+}
+
+export async function setOrderNoteDb(orderId: number, note: string) {
+  await prisma.productionOrder.update({
+    where: { id: orderId },
+    data: { note: note.trim() || null },
+  });
+}
+
+export async function setMovementNoteDb(movementId: number, note: string) {
+  await prisma.movement.update({
+    where: { id: movementId },
+    data: { note: note.trim() || null },
+  });
+}
 
 /**
  * Số lượng 1 ô trong một đợt đã có.
@@ -152,20 +216,50 @@ export async function setItemQtyDb(
       return;
     }
 
-    // Xoá hẳn dòng 0 để phiếu không phình ra toàn số 0.
-    if (quantity === 0)
-      await tx.movementItem.delete({ where: { id: existing.id } });
-    else
+    if (quantity > 0) {
       await tx.movementItem.update({
         where: { id: existing.id },
         data: { quantity },
+      });
+      return;
+    }
+
+    // Xoá hẳn dòng 0 để phiếu không phình ra toàn số 0.
+    await tx.movementItem.delete({ where: { id: existing.id } });
+
+    // Vừa xoá trắng ô CUỐI CÙNG: phiếu không còn item nào. Một phiếu cũ nhận ra
+    // chủ của nó qua chính các item ấy — hết item là hết đường suy, và dòng sẽ
+    // biến mất ngay dưới tay người đang gõ. Nên cho nó tự khai chủ bằng
+    // `stageId`, đúng như một đợt tạo từ bảng: xoá hết số thì dòng vẫn ở đó,
+    // trống, chờ gõ lại.
+    if ((await tx.movementItem.count({ where: { movementId } })) > 0) return;
+
+    const mv = await tx.movement.findUnique({ where: { id: movementId } });
+    if (!mv || mv.stageId != null || !mv.type) return;
+
+    const size = await tx.orderSize.findUnique({
+      where: { id: orderSizeId },
+      select: { categoryId: true },
+    });
+    if (!size) return;
+
+    const stage = await tx.stage.findFirst({
+      where: { categoryId: size.categoryId, type: mv.type },
+    });
+    if (stage)
+      await tx.movement.update({
+        where: { id: movementId },
+        data: { stageId: stage.id, partId },
       });
   });
 }
 
 export type NewBatchInput = {
   orderId: number;
-  type: MovementType;
+  /** Mục sở hữu đợt này. Đợt rỗng chỉ nhận ra được nhờ nó. */
+  stageId: number;
+  /** null = mục tự do. */
+  type: MovementType | null;
   /** yyyy-mm-dd */
   date: string;
   note?: string;
@@ -174,28 +268,38 @@ export type NewBatchInput = {
   quantities: { orderSizeId: number; qty: number }[];
 };
 
-/** Thêm một đợt gửi/nhận mới. Trả về lỗi dạng chuỗi nếu dữ liệu không hợp lệ. */
-export async function addBatchDb(input: NewBatchInput): Promise<string | null> {
+/**
+ * Thêm một đợt mới, trả về id của nó để bảng thả con trỏ vào đúng dòng vừa đẻ ra.
+ *
+ * Cố ý KHÔNG đòi phải có số lượng: bấm "thêm đợt" là đẻ ra một dòng trắng, rồi
+ * điền dần từng ô như trên một sheet Excel. Bù lại, dòng trắng không có item nào
+ * để suy ngược ra chủ của nó, nên `stageId`/`partId` phải ghi thẳng lên phiếu.
+ */
+export async function addBatchDb(
+  input: NewBatchInput
+): Promise<{ error: string } | { id: number }> {
   const date = parseDate(input.date);
-  if (!date) return "Chọn ngày cho đợt này.";
+  if (!date) return { error: "Chọn ngày cho đợt này." };
 
   const items = input.quantities
     .map((q) => ({ orderSizeId: q.orderSizeId, quantity: clean(q.qty) }))
     .filter((q) => q.quantity > 0);
-  if (items.length === 0) return "Nhập số lượng cho ít nhất 1 size.";
 
   const partId = input.type === "SEW_OUT" ? input.partId : null;
 
-  await prisma.movement.create({
+  const mv = await prisma.movement.create({
     data: {
       orderId: input.orderId,
+      stageId: input.stageId,
       type: input.type,
+      partId,
       date,
       note: input.note?.trim() || null,
       items: { create: items.map((i) => ({ ...i, partId })) },
     },
+    select: { id: true },
   });
-  return null;
+  return { id: mv.id };
 }
 
 export type NewPartInput = {
@@ -311,6 +415,14 @@ export async function deleteStageDb(stageId: number): Promise<boolean> {
     });
     if (!stage) return false;
 
+    // Mục tự do sở hữu trọn vẹn các đợt của nó — không phiếu nào khác trỏ vào,
+    // nên xoá thẳng cả phiếu (item cascade theo).
+    if (!stage.type) {
+      await tx.movement.deleteMany({ where: { stageId } });
+      await tx.stage.delete({ where: { id: stageId } });
+      return true;
+    }
+
     const sizes = await tx.orderSize.findMany({
       where: { categoryId: stage.category.id },
       select: { id: true },
@@ -329,11 +441,16 @@ export async function deleteStageDb(stageId: number): Promise<boolean> {
         },
       });
     }
+    // Dọn phiếu đã rỗng ruột. Chỉ những phiếu của CHÍNH mục này, cộng với phiếu
+    // cũ chưa gắn mục (vừa bị lấy hết item ở trên) — nếu quét cả `type` thì đợt
+    // RỖNG mà người dùng vừa mở ở một phân loại khác, cùng loại mục, cũng chết
+    // theo dù không liên quan gì.
     await tx.movement.deleteMany({
       where: {
         orderId: stage.category.orderId,
         type: stage.type,
         items: { none: {} },
+        OR: [{ stageId }, { stageId: null }],
       },
     });
 
@@ -359,9 +476,12 @@ export async function deleteCategoriesDb(
     where: { id: { in: categoryIds } },
   });
 
-  // OrderSize cascade kéo theo MovementItem, để lại phiếu rỗng.
+  // OrderSize cascade kéo theo MovementItem, để lại phiếu rỗng; Stage cascade
+  // thì gỡ `stageId` của các đợt thuộc phân loại vừa xoá về null. Chỉ dọn đúng
+  // những phiếu KHÔNG CÒN CHỦ ấy — đợt rỗng mà người dùng vừa mở ở một phân loại
+  // còn sống vẫn giữ nguyên `stageId`, và phải được để yên.
   await prisma.movement.deleteMany({
-    where: { orderId: { in: orderIds }, items: { none: {} } },
+    where: { orderId: { in: orderIds }, items: { none: {} }, stageId: null },
   });
 
   const orders = await prisma.productionOrder.deleteMany({

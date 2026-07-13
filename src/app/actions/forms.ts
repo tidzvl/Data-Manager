@@ -96,11 +96,16 @@ export async function loadMovementForm(
   if (movementId && (!movement || movement.orderId !== orderId)) {
     throw new Error("Không tìm thấy phiếu.");
   }
+  // Form này dựng quanh 4 công đoạn của luồng (trần SL còn lại, nhập theo chi
+  // tiết hay theo size…). Đợt của mục tự do không có công đoạn nào để bám vào.
+  if (movement && !movement.type) {
+    throw new Error("Đợt của mục tự do chỉ sửa được trên bảng.");
+  }
 
   const initial: MovementFormInitial = movement
     ? {
         id: movement.id,
-        type: movement.type,
+        type: movement.type!,
         date: movement.date.toISOString().slice(0, 10),
         note: movement.note ?? "",
         qty: Object.fromEntries(

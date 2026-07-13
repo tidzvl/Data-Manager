@@ -77,18 +77,31 @@ model Category {
   @@index([orderId])
 }
 
-/// Một dòng trên bảng quản lý: đúng một công đoạn của một phân loại.
-/// Khoá duy nhất (categoryId, type) — mà Category thuộc đúng 1 LSX — nên đây
-/// chính là bộ ba (LSX, Phân loại, Mục). Có bản ghi thì mới có dòng; không tạo
-/// sẵn đủ 4 mục cho mọi phân loại nữa.
+/// Một dòng trên bảng quản lý: đúng một mục của một phân loại.
+///
+/// Hai giống mục sống chung ở đây:
+///   - Mục HỆ THỐNG (`type` khác null): một trong 4 công đoạn của luồng sản
+///     xuất. Chỉ chúng mới tính vào tiến độ, nhật ký, xuất file.
+///   - Mục TỰ DO (`type` null, `name` bắt buộc): người dùng tự đặt tên. Chỉ có
+///     đợt và số lượng; không tham gia luồng.
+///
+/// `type` null được nên `@@unique([categoryId, type])` vẫn chặn trùng mục hệ
+/// thống — MySQL coi mỗi NULL là một giá trị khác nhau, nên mục tự do thêm bao
+/// nhiêu cũng được.
+///
+/// `name` ở mục hệ thống là nhãn ĐÈ LÊN nhãn mặc định của `type` (rỗng = dùng
+/// mặc định): đổi tên hiển thị mà không đụng gì tới luồng.
 model Stage {
-  id         Int          @id @default(autoincrement())
+  id         Int           @id @default(autoincrement())
   categoryId Int
-  type       MovementType
-  createdAt  DateTime     @default(now())
+  type       MovementType?
+  name       String?
+  position   Int           @default(0)
+  createdAt  DateTime      @default(now())
 
-  category Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  targets  StageTarget[]
+  category  Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  targets   StageTarget[]
+  movements Movement[]
 
   @@unique([categoryId, type])
   @@index([categoryId])
@@ -134,9 +147,10 @@ model Part {
   color      String? @db.VarChar(9)
   position   Int     @default(0)
 
-  category Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  targets  PartTarget[]
-  items    MovementItem[]
+  category  Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  targets   PartTarget[]
+  items     MovementItem[]
+  movements Movement[]
 
   @@index([categoryId])
 }
@@ -161,18 +175,36 @@ enum MovementType {
   EMB_IN // Nhận về từ thêu
 }
 
+/// Một đợt gửi/nhận.
+///
+/// `type` là cách gắn phiếu vào mục từ trước tới nay: khớp `movement.type` với
+/// `stage.type`, còn phân loại thì suy từ `orderSize` của từng item. Một phiếu
+/// nhập từ form vì thế có thể trải qua nhiều phân loại.
+///
+/// `stageId`/`partId` là cách gắn TRỰC TIẾP, cho những đợt tạo từ bảng: chúng
+/// thuộc đúng một mục (và một chi tiết, nếu là "Gửi may"). Bắt buộc phải có, vì
+/// đợt tạo từ bảng bắt đầu bằng số liệu RỖNG — không còn item nào để suy ngược
+/// ra nó thuộc phân loại nào.
+///
+/// Mục tự do chỉ nhận diện được bằng `stageId`; `type` của nó là null.
 model Movement {
-  id        Int          @id @default(autoincrement())
+  id        Int           @id @default(autoincrement())
   orderId   Int
-  type      MovementType
-  date      DateTime     @db.Date
-  note      String?      @db.Text
-  createdAt DateTime     @default(now())
+  type      MovementType?
+  stageId   Int?
+  partId    Int?
+  date      DateTime      @db.Date
+  note      String?       @db.Text
+  createdAt DateTime      @default(now())
 
   order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stage Stage?          @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  part  Part?           @relation(fields: [partId], references: [id], onDelete: Cascade)
   items MovementItem[]
 
   @@index([orderId, type])
+  @@index([stageId])
+  @@index([partId])
   @@index([date])
 }
 

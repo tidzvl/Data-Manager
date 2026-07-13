@@ -299,12 +299,14 @@ export async function probeCodesDb(codes: string[]): Promise<CodeStatus[]> {
     where: { code: { in: codes } },
     include: { categories: { include: { stages: true } } },
   });
+  // Chỉ mục hệ thống: nhập nhanh chỉ biết tới 4 mục của luồng, nên mục tự do
+  // không phải thứ nó có thể trùng vào.
   return orders.map((o) => ({
     code: o.code,
     categories: Object.fromEntries(
       o.categories.map((c) => [
         c.name.toLowerCase(),
-        c.stages.map((s) => s.type),
+        c.stages.map((s) => s.type).filter((t) => t !== null),
       ])
     ),
   }));

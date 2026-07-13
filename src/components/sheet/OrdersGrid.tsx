@@ -37,13 +37,17 @@ import {
 } from "@/lib/grid-types";
 import {
   addBatch,
+  addCustomStage,
   addPart,
   addStage,
   deleteBatch,
   deleteRows,
+  renameStage,
   setItemQty,
   setMovementDate,
+  setMovementNote,
   setOrderCreatedAt,
+  setOrderNote,
   setPartTarget,
   type CellResult,
 } from "@/app/actions/grid";
@@ -55,6 +59,9 @@ import { CALC_CHARS, CALC_STRIP, calcQty } from "@/lib/calc";
 import {
   COL_NAME,
   buildNav,
+  colDate,
+  colNote,
+  colTotal,
   collapseOrOut,
   depthOf,
   expandOrIn,
@@ -82,6 +89,8 @@ import {
  * biết gì về hình dạng của bảng.
  */
 type NavApi = {
+  /** Số cột size — các ô đuôi (Tổng/Ngày/Ghi chú) đánh số tiếp từ đây. */
+  n: number;
   at: (id: string, col: number) => boolean;
   editing: boolean;
   tabIndex: (id: string, col: number) => 0 | -1;
@@ -96,12 +105,19 @@ type NavApi = {
   /** Dòng "+ Thêm…" nào đang mở; đúng một cái trong cả bảng. */
   addOpen: string | null;
   setAddOpen: (id: string | null) => void;
+  /**
+   * Thả con trỏ vào một ô NGAY KHI dòng của nó xuất hiện. Dòng vừa tạo chưa có
+   * trong `nav` — dữ liệu còn đang trên đường về từ `router.refresh()` — nên
+   * `point()` thẳng vào nó sẽ bị `reanchor` kéo ngược về dòng cha.
+   */
+  focusOnArrive: (c: Cursor) => void;
   /** Trả về false nghĩa là hết đường — caller tự quyết làm gì tiếp. */
   move: (dir: "up" | "down" | "left" | "right", sticky: boolean) => boolean;
   tab: (dir: 1 | -1) => boolean;
 };
 
 const NavCtx = createContext<NavApi>({
+  n: 0,
   at: () => false,
   editing: false,
   tabIndex: () => -1,
@@ -111,6 +127,7 @@ const NavCtx = createContext<NavApi>({
   hasSelection: false,
   addOpen: null,
   setAddOpen: () => {},
+  focusOnArrive: () => {},
   move: () => false,
   tab: () => false,
 });
@@ -196,6 +213,8 @@ export default function OrdersGrid({
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [editing, setEditing] = useState(false);
   const [addOpen, setAddOpen] = useState<string | null>(null);
+  /** Ô đang chờ dòng của nó hiện ra — xem `focusOnArrive`. */
+  const [pendingFocus, setPendingFocus] = useState<Cursor | null>(null);
   /** Neo của dải Shift+↑/↓; đặt lại mỗi khi tick bằng Space. */
   const anchor = useRef<string | null>(null);
 
@@ -236,6 +255,15 @@ export default function OrdersGrid({
     setCursor(next);
     setEditing(false);
   }, [nav, cursor]);
+
+  // Dòng vừa tạo đã về tới nơi: thả con trỏ vào ô đầu tiên của nó, y như Excel
+  // đưa con trỏ xuống dòng mới ngay sau khi chèn.
+  useEffect(() => {
+    if (!pendingFocus || !rowAt(nav, pendingFocus.id)) return;
+    setCursor(pendingFocus);
+    setEditing(false);
+    setPendingFocus(null);
+  }, [nav, pendingFocus]);
 
   /**
    * Chọn dòng chỉ tính trên những dòng đang HIỆN. Gập một mục lại là bỏ tick các
@@ -377,10 +405,12 @@ export default function OrdersGrid({
     }
     const row = body.querySelector(`[data-nav="${CSS.escape(cursor.id)}"]`);
     // Cột A không có phần tử riêng: nét đậu trên chính `.sheet-row`, và CSS kéo
-    // khung ô từ dòng xuống `.sheet-freeze`.
+    // khung ô từ dòng xuống `.sheet-freeze`. Trừ lúc đang đổi tên mục — khi ấy
+    // ô nhập mới là chỗ phải lấy nét, không thì gõ vào hư không.
     const el =
       cursor.col === COL_NAME
-        ? (row as HTMLElement | null)
+        ? (row?.querySelector<HTMLElement>("[data-name-input]") ??
+          (row as HTMLElement | null))
         : row?.querySelector<HTMLElement>(`[data-col="${cursor.col}"]`) ?? null;
 
     if (!el) {
@@ -424,6 +454,7 @@ export default function OrdersGrid({
   };
 
   const api: NavApi = {
+    n,
     editing,
     at: (id, col) => cursor?.id === id && cursor.col === col,
     // Roving tabindex: cả bảng chỉ có đúng một điểm dừng cho phím Tab của trình
@@ -446,6 +477,7 @@ export default function OrdersGrid({
     hasSelection: selectedRows.length > 0,
     addOpen,
     setAddOpen,
+    focusOnArrive: setPendingFocus,
     move: (dir, keepEditing) => {
       if (!cursor) return false;
       if (dir === "up" || dir === "down") {
@@ -616,11 +648,19 @@ export default function OrdersGrid({
         );
         break;
 
-      // Ở ô gõ được thì EditCell đã tự mở sửa và chặn phím; tới được đây nghĩa là
-      // con trỏ đang ở cột A hoặc ở một ô chỉ đọc.
+      // Ở ô gõ được thì ô đã tự mở sửa và chặn phím; tới được đây nghĩa là con
+      // trỏ đang ở cột A hoặc ở một ô chỉ đọc.
       case "Enter":
         if (cursor.col !== COL_NAME || !here?.expandable) return;
         setOpen(here.id, !here.expanded);
+        break;
+
+      // Đổi tên mục. Cột A không nhả Enter được (Enter ở đó là gập/mở cây), nên
+      // dùng F2 — phím sửa ô của Excel. Nháy đúp vào nhãn cũng mở ra.
+      case "F2":
+        if (!isEditable(here, COL_NAME)) return;
+        setCursor({ id: here!.id, col: COL_NAME });
+        setEditing(true);
         break;
 
       // Ô gõ được nuốt Delete để đặt số về 0. Còn ở cột A hay ô chỉ đọc thì Delete
@@ -774,7 +814,6 @@ export default function OrdersGrid({
                                       row={row}
                                       navId={`${rowId}/${part.key}`}
                                       part={part}
-                                      columns={columns}
                                       open={!!openParts[`${rowId}/${part.key}`]}
                                       onToggle={() =>
                                         toggle(
@@ -814,11 +853,11 @@ export default function OrdersGrid({
                               ) : (
                                 <AddBatchRow
                                   row={row}
-                                  columns={columns}
                                   partId={null}
                                   indent={INDENT.batch}
                                   bg={ROW_BG.batch}
                                   addId={`add:${rowId}`}
+                                  parentId={rowId}
                                 />
                               )}
                             </div>
@@ -1095,14 +1134,23 @@ function Header({
 
       <span
         className="sheet-cell sheet-cell--num"
+        data-col={colTotal(n)}
         style={{ gridColumn: TOTAL, gridRow: both, fontWeight: 700 }}
       >
         Tổng
       </span>
-      <span className="sheet-cell" style={{ gridColumn: TOTAL + 1, gridRow: both }}>
+      <span
+        className="sheet-cell"
+        data-col={colDate(n)}
+        style={{ gridColumn: TOTAL + 1, gridRow: both }}
+      >
         <SortHead sortKey="createdAt">Ngày</SortHead>
       </span>
-      <span className="sheet-cell" style={{ gridColumn: TOTAL + 2, gridRow: both }}>
+      <span
+        className="sheet-cell"
+        data-col={colNote(n)}
+        style={{ gridColumn: TOTAL + 2, gridRow: both }}
+      >
         Ghi chú
       </span>
       <span
@@ -1285,8 +1333,9 @@ function OrderRow({
         </ReadCell>
       ))}
 
-      <span
-        className="sheet-cell sheet-cell--num"
+      <ReadCell
+        rowId={navId}
+        col={colTotal(nav.n)}
         style={{
           fontWeight: 700,
           color: "var(--s-plan)",
@@ -1294,20 +1343,23 @@ function OrderRow({
         }}
       >
         {order.planTotal || "–"}
-      </span>
+      </ReadCell>
 
       <EditDateCell
+        rowId={navId}
+        col={colDate(nav.n)}
         iso={order.createdAtIso}
         label={order.createdAt}
         save={(iso) => setOrderCreatedAt(order.orderId, iso)}
       />
 
-      <span
-        className="sheet-cell truncate"
-        style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
-      >
-        {order.note ?? `Dự kiến · ${order.createdAt}`}
-      </span>
+      <EditTextCell
+        rowId={navId}
+        col={colNote(nav.n)}
+        value={order.note ?? ""}
+        placeholder="Ghi chú LSX…"
+        save={(text) => setOrderNote(order.orderId, text)}
+      />
 
       <span
         className="sheet-cell"
@@ -1351,15 +1403,19 @@ function StageRow({
   const short = row.stageId > 0 && planTotal > 0 && row.total < planTotal;
 
   const verb = row.muc === "SEW_OUT" || row.muc === "EMB_OUT" ? "gửi" : "nhận";
-  // "Gửi may" mở ra chi tiết, ba mục kia mở thẳng ra đợt.
+  // "Gửi may" mở ra chi tiết, các mục khác mở thẳng ra đợt.
   const unit = row.muc === "SEW_OUT" ? "chi tiết" : "đợt";
+  const empty =
+    row.muc === "SEW_OUT"
+      ? "Chưa có chi tiết"
+      : row.muc
+        ? `Chưa ${verb}`
+        : "Chưa có đợt";
   const note =
     row.stageId === 0
       ? "Chưa có mục"
       : row.children.length === 0
-        ? row.muc === "SEW_OUT"
-          ? "Chưa có chi tiết"
-          : `Chưa ${verb}`
+        ? empty
         : short
           ? `Thiếu ${planTotal - row.total} · ${row.children.length} ${unit}`
           : `Đủ gốc · ${row.children.length} ${unit}`;
@@ -1392,12 +1448,7 @@ function StageRow({
           />
         </span>
         <Chevron open={open} hidden={row.stageId === 0} onClick={onToggle} />
-        <span
-          className="truncate"
-          style={{ fontWeight: 600, fontSize: 12.5, color: "#2f3a34" }}
-        >
-          {stageLabel(row)}
-        </span>
+        <StageName row={row} navId={navId} />
       </span>
 
       <span className="sheet-cell" />
@@ -1406,8 +1457,9 @@ function StageRow({
         <StageCell key={i} cell={c} col={i} rowId={navId} />
       ))}
 
-      <span
-        className="sheet-cell sheet-cell--num"
+      <ReadCell
+        rowId={navId}
+        col={colTotal(nav.n)}
         title={`Đã ${row.total} / gốc ${planTotal}`}
         style={{
           fontWeight: 700,
@@ -1416,16 +1468,21 @@ function StageRow({
         }}
       >
         {row.total || "–"}
-      </span>
+      </ReadCell>
 
-      <span className="sheet-cell" />
+      <ReadCell rowId={navId} col={colDate(nav.n)} text>
+        {""}
+      </ReadCell>
 
-      <span
-        className="sheet-cell truncate"
-        style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
+      <ReadCell
+        rowId={navId}
+        col={colNote(nav.n)}
+        text
+        color="var(--s-muted)"
+        style={{ fontSize: 11 }}
       >
         {note}
-      </span>
+      </ReadCell>
 
       <span
         className="sheet-cell"
@@ -1452,6 +1509,126 @@ function StageRow({
   );
 }
 
+/**
+ * Tên mục — ô chữ của cột A.
+ *
+ * Mục hệ thống: sửa ở đây là đặt một nhãn ĐÈ LÊN nhãn mặc định; vai trò của nó
+ * trong luồng sản xuất (và do đó tiến độ, nhật ký, xuất file) không đổi. Xoá
+ * trắng là trả về nhãn mặc định.
+ * Mục tự do: cái tên này là tất cả những gì nó có, nên không được để trống.
+ *
+ * Chỉ TÊN sửa được, "(Áo)" phía sau là phân loại — thứ thuộc về một cây khác.
+ */
+function StageName({ row, navId }: { row: GridRow; navId: string }) {
+  const router = useRouter();
+  const nav = useContext(NavCtx);
+  const [draft, setDraft] = useState("");
+  const [wasEditing, setWasEditing] = useState(false);
+  const [pending, start] = useTransition();
+  const cancelled = useRef(false);
+  const committed = useRef(false);
+
+  // Dòng giữ chỗ chưa có mục nào thì chưa có gì để đặt tên.
+  const editable = row.stageId > 0;
+  const editing = editable && nav.at(navId, COL_NAME) && nav.editing;
+
+  if (editing !== wasEditing) {
+    setWasEditing(editing);
+    if (editing) {
+      cancelled.current = false;
+      committed.current = false;
+      setDraft(row.mucLabel);
+    }
+  }
+
+  const commit = () => {
+    if (committed.current || cancelled.current) return;
+    committed.current = true;
+    if (draft.trim() === row.mucLabel.trim()) return;
+    start(async () => {
+      const res = await renameStage(row.stageId, draft);
+      if (res.ok) router.refresh();
+      else {
+        toast.error(res.error ?? "Lỗi khi lưu.");
+        // Tên bị từ chối (mục tự do để trống): kéo lại giá trị cũ từ server,
+        // đừng để ô hiện một cái tên chưa bao giờ được ghi xuống.
+        router.refresh();
+      }
+    });
+  };
+
+  if (editing) {
+    return (
+      <input
+        data-name-input=""
+        value={draft}
+        placeholder="Tên mục…"
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          committed.current = false;
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          // Bộ gõ đang soạn dấu thì Enter là phím CHỐT DẤU của nó — cướp mất thì
+          // "Nhận đợt" ra "Nhan đot", và lưu luôn cái tên hỏng ấy.
+          if (isComposing(e)) return;
+
+          switch (e.key) {
+            case "Escape":
+              cancelled.current = true;
+              nav.stopEditing();
+              break;
+            case "Enter":
+              commit();
+              nav.move("down", true);
+              break;
+            case "Tab":
+              commit();
+              if (!nav.tab(e.shiftKey ? -1 : 1)) return;
+              break;
+            default:
+              return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: "#fff",
+          border: "1px solid var(--s-accent)",
+          borderRadius: 3,
+          padding: "2px 6px",
+          fontSize: 12.5,
+          fontWeight: 600,
+          outline: "none",
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      className="truncate"
+      title={editable ? "Nháy đúp hoặc F2 để đổi tên mục" : undefined}
+      onDoubleClick={(e) => {
+        if (!editable) return;
+        e.stopPropagation();
+        nav.open(navId, COL_NAME);
+      }}
+      style={{
+        fontWeight: 600,
+        fontSize: 12.5,
+        color: "#2f3a34",
+        opacity: pending ? 0.4 : 1,
+      }}
+    >
+      {stageLabel(row)}
+    </span>
+  );
+}
+
 /** Một phân loại còn thiếu mục, kèm chỗ để chép SL kế hoạch sang mục mới. */
 type StageGroup = {
   categoryId: number;
@@ -1462,10 +1639,13 @@ type StageGroup = {
 };
 
 /**
- * Gom các dòng mục lại theo phân loại, chỉ giữ phân loại còn thiếu mục.
+ * Gom các dòng mục lại theo phân loại.
  *
  * Mọi dòng của cùng một phân loại đều mang chung `missingMucs`, nên lấy của dòng
  * nào cũng được; thứ phải nhặt thêm là một `stageId` thật để chép kế hoạch.
+ *
+ * Giữ cả phân loại đã đủ 4 mục hệ thống — mục TỰ DO thì lúc nào cũng thêm được,
+ * nên cái nút "+" không bao giờ hết việc.
  */
 function stageGroups(rows: GridRow[]): StageGroup[] {
   const by = new Map<number, StageGroup>();
@@ -1478,7 +1658,7 @@ function stageGroups(rows: GridRow[]): StageGroup[] {
     if (r.stageId > 0) g.sourceStageId ??= r.stageId;
     by.set(r.categoryId, g);
   }
-  return [...by.values()].filter((g) => g.missingMucs.length > 0);
+  return [...by.values()];
 }
 
 /**
@@ -1500,9 +1680,14 @@ function AddStageButton({
   const [at, setAt] = useState<MenuPos | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  /** Tên mục tự do đang gõ, theo từng phân loại. */
+  const [names, setNames] = useState<Record<number, string>>({});
 
-  /** Một tiêu đề cho mỗi phân loại, cộng một dòng cho mỗi mục thiếu. */
-  const lines = groups.reduce((a, g) => a + 1 + g.missingMucs.length, 0);
+  /**
+   * Một tiêu đề cho mỗi phân loại, một dòng cho mỗi mục thiếu, một ô nhập mục
+   * tự do. Chỉ để ước lượng chiều cao mà lật menu lên khi dưới hết chỗ.
+   */
+  const lines = groups.reduce((a, g) => a + 2 + g.missingMucs.length, 0);
 
   // Menu phải TREO RA `body`, không nằm trong dòng.
   //
@@ -1563,6 +1748,20 @@ function AddStageButton({
         router.refresh();
       } else toast.error(res.error ?? "Lỗi khi thêm mục.");
     });
+
+  const addCustom = (g: StageGroup) => {
+    const name = (names[g.categoryId] ?? "").trim();
+    if (!name) return;
+    start(async () => {
+      const res = await addCustomStage(g.categoryId, name);
+      setOpen(false);
+      setNames((s) => ({ ...s, [g.categoryId]: "" }));
+      if (res.ok) {
+        toast.success(`Đã thêm mục "${name}" cho ${g.categoryName}`);
+        router.refresh();
+      } else toast.error(res.error ?? "Lỗi khi thêm mục.");
+    });
+  };
 
   return (
     <>
@@ -1639,6 +1838,34 @@ function AddStageButton({
                     {MUC_LABEL[m]}
                   </button>
                 ))}
+
+                {/* Mục tự do: gõ tên rồi Enter. Không thuộc luồng sản xuất nào,
+                    nên nó chỉ có đợt và số lượng. */}
+                <input
+                  value={names[g.categoryId] ?? ""}
+                  disabled={pending}
+                  placeholder="Mục mới… (Enter)"
+                  onChange={(e) =>
+                    setNames((s) => ({ ...s, [g.categoryId]: e.target.value }))
+                  }
+                  onKeyDown={(e) => {
+                    if (isComposing(e)) return;
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addCustom(g);
+                    } else if (e.key === "Escape") setOpen(false);
+                  }}
+                  style={{
+                    width: "100%",
+                    margin: "2px 0 2px",
+                    background: "#fff",
+                    border: "1px dashed var(--s-card-line)",
+                    borderRadius: 3,
+                    padding: "5px 8px",
+                    fontSize: 12.5,
+                    outline: "none",
+                  }}
+                />
               </div>
             ))}
           </div>,
@@ -1705,7 +1932,6 @@ function PartBlock({
   row,
   navId,
   part,
-  columns,
   open,
   onToggle,
   selected,
@@ -1714,7 +1940,6 @@ function PartBlock({
   row: GridRow;
   navId: string;
   part: GridChild;
-  columns: SizeColumn[];
   open: boolean;
   onToggle: () => void;
   selected: Record<string, boolean>;
@@ -1766,20 +1991,26 @@ function PartBlock({
           />
         ))}
 
-        <span
-          className="sheet-cell sheet-cell--num"
+        <ReadCell
+          rowId={navId}
+          col={colTotal(nav.n)}
           style={{ fontWeight: 700, color: "var(--s-ink)" }}
         >
           {part.total || "–"}
-        </span>
+        </ReadCell>
 
-        <span className="sheet-cell" />
-        <span
-          className="sheet-cell truncate"
-          style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
+        <ReadCell rowId={navId} col={colDate(nav.n)} text>
+          {""}
+        </ReadCell>
+        <ReadCell
+          rowId={navId}
+          col={colNote(nav.n)}
+          text
+          color="var(--s-muted)"
+          style={{ fontSize: 11 }}
         >
           {part.note}
-        </span>
+        </ReadCell>
         <span className="sheet-cell" style={{ borderRight: "none" }} />
       </div>
 
@@ -1801,11 +2032,11 @@ function PartBlock({
           })}
           <AddBatchRow
             row={row}
-            columns={columns}
             partId={part.partId}
             indent={INDENT.subBatch}
             bg={ROW_BG.subBatch}
             addId={`add:${navId}`}
+            parentId={navId}
           />
         </div>
       )}
@@ -1893,25 +2124,29 @@ function BatchRow({
         />
       ))}
 
-      <span
-        className="sheet-cell sheet-cell--num"
+      <ReadCell
+        rowId={navId}
+        col={colTotal(nav.n)}
         style={{ fontWeight: 700, color: "var(--s-ink)" }}
       >
         {child.total || "–"}
-      </span>
+      </ReadCell>
 
       <EditDateCell
+        rowId={navId}
+        col={colDate(nav.n)}
         iso={child.dateIso!}
         label={child.dateLabel}
         save={(iso) => setMovementDate(child.movementId!, iso)}
       />
 
-      <span
-        className="sheet-cell truncate"
-        style={{ fontSize: 11, color: "var(--s-muted)", whiteSpace: "nowrap" }}
-      >
-        {child.note ?? ""}
-      </span>
+      <EditTextCell
+        rowId={navId}
+        col={colNote(nav.n)}
+        value={child.note ?? ""}
+        placeholder="Ghi chú…"
+        save={(text) => setMovementNote(child.movementId!, text)}
+      />
 
       <span
         className="sheet-cell"
@@ -1954,12 +2189,17 @@ function ReadCell({
   col,
   color,
   title,
+  text,
+  style,
   children,
 }: {
   rowId: string;
   col: number;
-  color: string;
+  color?: string;
   title?: string;
+  /** Ô chữ: canh trái và cắt cụt, thay vì canh phải như ô số. */
+  text?: boolean;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
   const nav = useContext(NavCtx);
@@ -1969,7 +2209,9 @@ function ReadCell({
     <span
       role="button"
       tabIndex={nav.tabIndex(rowId, col)}
-      className="sheet-cell sheet-cell--num"
+      className={
+        text ? "sheet-cell truncate" : "sheet-cell sheet-cell--num"
+      }
       data-col={col}
       data-focused={focused || undefined}
       title={title}
@@ -1978,7 +2220,13 @@ function ReadCell({
         e.stopPropagation();
         nav.point(rowId, col);
       }}
-      style={{ color, cursor: "default", outline: "none" }}
+      style={{
+        color,
+        cursor: "default",
+        outline: "none",
+        ...(text ? { whiteSpace: "nowrap" } : null),
+        ...style,
+      }}
     >
       {children}
     </span>
@@ -2022,24 +2270,36 @@ function StageCell({
 }
 
 /**
- * Ô ngày sửa tại chỗ. Dùng cho ngày tạo LSX (dòng LSX) và ngày của đợt.
- * Phải chặn click nổi lên, không thì bảng đóng/mở dòng.
+ * Ô ngày sửa tại chỗ — ngày tạo LSX, và ngày của đợt.
+ *
+ * Trạng thái "đang sửa" do BẢNG giữ, như ô số: có thế mũi tên mới đi vào ô này
+ * được, và Enter mới bê được chế độ sửa sang dòng dưới.
  */
 function EditDateCell({
+  rowId,
+  col,
   iso,
   label,
   save,
 }: {
+  rowId: string;
+  col: number;
   iso: string;
   label: string;
   save: (iso: string) => Promise<CellResult>;
 }) {
   const router = useRouter();
-  const [editing, setEditing] = useState(false);
+  const nav = useContext(NavCtx);
   const [pending, start] = useTransition();
+  const cancelled = useRef(false);
+  const committed = useRef(false);
+
+  const focused = nav.at(rowId, col);
+  const editing = focused && nav.editing;
 
   const commit = (next: string) => {
-    setEditing(false);
+    if (committed.current || cancelled.current) return;
+    committed.current = true;
     if (!next || next === iso) return;
     start(async () => {
       const res = await save(next);
@@ -2053,14 +2313,39 @@ function EditDateCell({
       <input
         autoFocus
         type="date"
+        data-col={col}
         defaultValue={iso}
         className="sheet-cell--input"
         style={{ textAlign: "left", fontSize: 11.5 }}
         onClick={(e) => e.stopPropagation()}
+        onFocus={() => {
+          cancelled.current = false;
+          committed.current = false;
+        }}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          else if (e.key === "Escape") setEditing(false);
+          const el = e.currentTarget;
+          switch (e.key) {
+            case "Escape":
+              cancelled.current = true;
+              nav.stopEditing();
+              break;
+            case "Enter":
+              commit(el.value);
+              nav.move("down", true);
+              break;
+            case "Tab":
+              commit(el.value);
+              if (!nav.tab(e.shiftKey ? -1 : 1)) return;
+              break;
+            // ←/→/↑/↓ là phím của chính ô ngày (đi giữa ngày·tháng·năm, tăng
+            // giảm số). Muốn ra khỏi nó thì dùng Tab hoặc Enter — giành mất thì
+            // không sửa được tháng bằng bàn phím nữa.
+            default:
+              return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
         }}
       />
     );
@@ -2069,23 +2354,191 @@ function EditDateCell({
   return (
     <span
       role="button"
-      tabIndex={0}
+      tabIndex={nav.tabIndex(rowId, col)}
+      data-col={col}
+      data-focused={focused || undefined}
       title="Bấm để sửa ngày"
       className="sheet-cell"
       onClick={(e) => {
         e.stopPropagation();
-        setEditing(true);
+        nav.open(rowId, col);
       }}
-      onKeyDown={(e) => e.key === "Enter" && setEditing(true)}
+      onKeyDown={(e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.key !== "Enter") return;
+        nav.open(rowId, col);
+        e.preventDefault();
+        e.stopPropagation();
+      }}
       style={{
         fontSize: 11.5,
         cursor: "pointer",
         whiteSpace: "nowrap",
+        outline: "none",
         color: "var(--s-ink-2)",
         opacity: pending ? 0.4 : 1,
       }}
     >
       {label}
+    </span>
+  );
+}
+
+/**
+ * Ô CHỮ sửa tại chỗ — ghi chú, và tên mục.
+ *
+ * Khác ô số ở ba chỗ: không tính biểu thức, không nuốt Delete (Delete trong một
+ * ô chữ là xoá ký tự), và phải nhường phím cho bộ gõ tiếng Việt khi nó đang soạn
+ * dấu — cướp Enter lúc ấy thì "đợt" ra "đot".
+ */
+function EditTextCell({
+  rowId,
+  col,
+  value,
+  placeholder,
+  title,
+  save,
+  style,
+}: {
+  rowId: string;
+  col: number;
+  value: string;
+  placeholder?: string;
+  title?: string;
+  save: (text: string) => Promise<CellResult>;
+  style?: React.CSSProperties;
+}) {
+  const router = useRouter();
+  const nav = useContext(NavCtx);
+  const [draft, setDraft] = useState("");
+  const [wasEditing, setWasEditing] = useState(false);
+  const [pending, start] = useTransition();
+  const cancelled = useRef(false);
+  const committed = useRef(false);
+
+  const focused = nav.at(rowId, col);
+  const editing = focused && nav.editing;
+
+  // Nạp nháp ngay trong lúc render, không trong effect — xem ghi chú dài ở `EditCell`.
+  if (editing !== wasEditing) {
+    setWasEditing(editing);
+    if (editing) {
+      cancelled.current = false;
+      committed.current = false;
+      setDraft(value);
+    }
+  }
+
+  const commit = () => {
+    if (committed.current || cancelled.current) return;
+    committed.current = true;
+    if (draft.trim() === value.trim()) return;
+    start(async () => {
+      const res = await save(draft);
+      if (res.ok) router.refresh();
+      else {
+        toast.error(res.error ?? "Lỗi khi lưu.");
+        router.refresh();
+      }
+    });
+  };
+
+  if (editing) {
+    return (
+      <input
+        data-col={col}
+        value={draft}
+        placeholder={placeholder}
+        className="sheet-cell--input"
+        style={{ textAlign: "left", fontSize: 11.5, ...style }}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          committed.current = false;
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (isComposing(e)) return;
+
+          const el = e.currentTarget;
+          const collapsed = el.selectionStart === el.selectionEnd;
+
+          switch (e.key) {
+            case "Escape":
+              cancelled.current = true;
+              nav.stopEditing();
+              break;
+            case "Enter":
+              commit();
+              nav.move("down", true);
+              break;
+            case "ArrowUp":
+            case "ArrowDown":
+              commit();
+              nav.move(e.key === "ArrowUp" ? "up" : "down", true);
+              break;
+            case "Tab":
+              commit();
+              if (!nav.tab(e.shiftKey ? -1 : 1)) return;
+              break;
+            // Chỉ rời ô khi con trỏ chữ đã ở mép — không thì sửa một chữ giữa
+            // câu cũng bị hất sang ô bên cạnh.
+            case "ArrowLeft":
+              if (!collapsed || el.selectionStart !== 0) return;
+              commit();
+              nav.move("left", true);
+              break;
+            case "ArrowRight":
+              if (!collapsed || el.selectionStart !== el.value.length) return;
+              commit();
+              nav.move("right", true);
+              break;
+            default:
+              return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      role="button"
+      tabIndex={nav.tabIndex(rowId, col)}
+      data-col={col}
+      data-focused={focused || undefined}
+      title={title ?? "Bấm để sửa"}
+      className="sheet-cell truncate"
+      onClick={(e) => {
+        e.stopPropagation();
+        nav.open(rowId, col);
+      }}
+      onKeyDown={(e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        // Cố ý KHÔNG mở bằng cách gõ thẳng một chữ cái như ô số.
+        //
+        // Chữ cái là lệnh của bảng ở mọi ô: `a` thêm đợt, `x` tick dòng. Ô số
+        // giành được phím vì biểu thức chỉ gồm chữ số và dấu phép tính, không
+        // đụng chữ cái nào; ô chữ mà cũng giành thì đứng ở cột Ghi chú là mất
+        // sạch phím tắt. Enter/F2 mở sửa — F2 là phím sửa ô của Excel.
+        if (e.key === "Enter" || e.key === "F2") nav.open(rowId, col);
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      style={{
+        fontSize: 11,
+        cursor: "pointer",
+        outline: "none",
+        whiteSpace: "nowrap",
+        color: value ? "var(--s-ink-2)" : "var(--s-faint)",
+        opacity: pending ? 0.4 : 1,
+        ...style,
+      }}
+    >
+      {value || placeholder || "—"}
     </span>
   );
 }
@@ -2459,25 +2912,31 @@ function draftTotal(qty: string[]): number {
   }, 0);
 }
 
-/** Dòng "＋ Thêm ..." lúc chưa mở — bấm vào mới hiện các ô nhập. */
+/** Dòng "＋ Thêm ..." — bấm vào để mở ô nhập, hoặc để đẻ thẳng một dòng mới. */
 function AddTrigger({
   label,
   indent,
   bg,
   cols,
+  busy,
   onOpen,
 }: {
   label: string;
   indent: number;
   bg: string;
   cols: number;
+  busy?: boolean;
   onOpen: () => void;
 }) {
   return (
     <div
       className="sheet-row sheet-hover"
-      onClick={onOpen}
-      style={{ ["--row-bg" as string]: bg, cursor: "pointer" }}
+      onClick={busy ? undefined : onOpen}
+      style={{
+        ["--row-bg" as string]: bg,
+        cursor: busy ? "default" : "pointer",
+        opacity: busy ? 0.5 : 1,
+      }}
     >
       <span
         className="sheet-cell sheet-freeze"
@@ -2647,142 +3106,91 @@ function AddPartRow({
   );
 }
 
-/** Thêm một đợt gửi/nhận mới. */
+/**
+ * "＋ Thêm đợt" — đẻ NGAY một dòng trống rồi thả con trỏ vào ô đầu tiên của nó.
+ *
+ * Không còn form nháp. Dòng nháp là một cái bảng thứ hai nằm trong bảng: nó có
+ * ô riêng, phím riêng, và người dùng phải điền cho xong rồi bấm lưu mới thấy dòng
+ * thật hiện ra. Đợt trống thì ngược lại — nó LÀ dòng thật ngay từ đầu, gõ vào ô
+ * nào lưu ô ấy, y như chèn một dòng trên Excel.
+ */
 function AddBatchRow({
   row,
-  columns,
   partId,
   indent,
   bg,
   addId,
+  parentId,
 }: {
   row: GridRow;
-  columns: SizeColumn[];
   partId: number | null;
   indent: number;
   bg: string;
+  /** Khoá mà phím `a` dùng để gọi đúng dòng này. */
   addId: string;
+  /** id điều hướng của dòng cha — để dựng id của dòng vừa tạo. */
+  parentId: string;
 }) {
   const router = useRouter();
   const nav = useContext(NavCtx);
-  const [date, setDate] = useState(today());
-  const [note, setNote] = useState("");
-  const [qty, setQty] = useState<string[]>(() => columns.map(() => ""));
   const [pending, start] = useTransition();
-
-  const n = columns.length;
-  const open = nav.addOpen === addId;
-  const close = () => {
-    nav.setAddOpen(null);
-    setDate(today());
-    setNote("");
-    setQty(columns.map(() => ""));
-  };
+  /** `a` là một xung, không phải một trạng thái — chỉ được đẻ đúng một dòng. */
+  const fired = useRef(false);
 
   const isReceive = row.muc === "SEW_IN" || row.muc === "EMB_IN";
+  const label = !row.muc
+    ? "Thêm đợt…"
+    : isReceive
+      ? "Thêm đợt nhận…"
+      : "Thêm đợt gửi…";
 
-  if (!open) {
-    return (
-      <AddTrigger
-        label={isReceive ? "Thêm đợt nhận…" : "Thêm đợt gửi…"}
-        indent={indent}
-        bg={bg}
-        cols={n + 6}
-        onOpen={() => nav.setAddOpen(addId)}
-      />
-    );
-  }
-
-  const submit = () => {
-    const calc = calcDrafts(qty, columns);
-    if (!calc.ok) {
-      toast.error(calc.error);
-      return;
-    }
-
-    const quantities = row.cells
-      .map((c, i) => ({ orderSizeId: c.orderSizeId, qty: calc.values[i] }))
-      .filter((t): t is { orderSizeId: number; qty: number } => t.orderSizeId != null);
-
+  const add = () =>
     start(async () => {
       const res = await addBatch({
         orderId: row.orderId,
+        stageId: row.stageId,
         type: row.muc,
-        date,
-        note,
+        date: today(),
         partId,
-        quantities,
+        quantities: [],
       });
-      if (res.ok) {
-        toast.success("Đã thêm đợt mới");
-        close();
-        router.refresh();
-      } else toast.error(res.error ?? "Lỗi khi lưu.");
-    });
-  };
+      if (!res.ok || res.movementId == null) {
+        toast.error(res.error ?? "Lỗi khi thêm đợt.");
+        return;
+      }
 
-  const total = draftTotal(qty);
-  // Con trỏ nhảy thẳng vào ô số đầu tiên nhập được; ngày đã có sẵn hôm nay.
-  const firstEditable = row.cells.findIndex((c) => c.orderSizeId != null);
-  const keys = addRowKeys(submit, close);
+      // Dòng mới chưa có trong `nav` — dữ liệu còn đang trên đường về. Đặt hẹn,
+      // con trỏ sẽ nhảy vào đúng ô số đầu tiên ngay khi dòng hiện ra.
+      const col = row.cells.findIndex((c) => c.orderSizeId != null);
+      nav.focusOnArrive({
+        id: `${parentId}/mv-${res.movementId}-${partId ?? "all"}`,
+        col: col >= 0 ? col : COL_NAME,
+      });
+      router.refresh();
+    });
+
+  // Phím `a` của bảng cũng gọi tới đây. Bảng không biết dòng này là dòng nào,
+  // nên nó chỉ gọi tên qua `addOpen`; dòng tự nhận ra mình rồi tự đẻ.
+  useEffect(() => {
+    if (nav.addOpen !== addId) {
+      fired.current = false;
+      return;
+    }
+    if (fired.current) return;
+    fired.current = true;
+    nav.setAddOpen(null);
+    add();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.addOpen, addId]);
 
   return (
-    <div
-      className="sheet-row sheet-expand"
-      style={{ ["--row-bg" as string]: bg, opacity: pending ? 0.5 : 1 }}
-      onKeyDown={keys}
-    >
-      <span
-        className="sheet-cell sheet-freeze"
-        style={{ gap: 7, paddingLeft: indent, color: "var(--s-ink-2)" }}
-      >
-        <Plus size={14} style={{ flexShrink: 0, color: "var(--s-accent)" }} />
-        <span style={{ fontSize: 12 }}>Đợt mới</span>
-      </span>
-
-      <span className="sheet-cell" />
-
-      {row.cells.map((c, i) => (
-        <NumInput
-          key={i}
-          col={i}
-          autoFocus={i === firstEditable}
-          disabled={c.orderSizeId == null}
-          value={qty[i]}
-          onChange={(v) => setQty((s) => s.map((x, j) => (j === i ? v : x)))}
-        />
-      ))}
-
-      <span
-        className="sheet-cell sheet-cell--num"
-        style={{ color: "var(--s-muted)" }}
-      >
-        {total || "–"}
-      </span>
-      <input
-        type="date"
-        value={date}
-        onChange={(e) => setDate(e.target.value)}
-        title="Ngày của đợt"
-        className="sheet-cell--input"
-        style={{
-          textAlign: "left",
-          fontSize: 11.5,
-          boxShadow: "inset 0 0 0 1px var(--s-card-line)",
-        }}
-      />
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="Ghi chú · Enter lưu"
-        className="sheet-cell--input"
-        style={{
-          textAlign: "left",
-          fontSize: 11.5,
-          boxShadow: "inset 0 0 0 1px var(--s-card-line)",
-        }}
-      />
-      <CancelBtn onClick={close} />
-    </div>
+    <AddTrigger
+      label={label}
+      indent={indent}
+      bg={bg}
+      cols={nav.n + 6}
+      busy={pending}
+      onOpen={add}
+    />
   );
 }

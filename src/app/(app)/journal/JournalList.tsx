@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Pencil, Trash2, StickyNote, ChevronDown } from "lucide-react";
 import type { MovementView } from "@/lib/aggregate";
-import { MOVEMENT_SHORT, MOVEMENT_ACCENT } from "@/lib/labels";
+import { movementAccent, movementShort } from "@/lib/labels";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import MovementFormModal, {
   type MovementModalTarget,
@@ -81,9 +81,9 @@ export default function JournalList({
                     className="flex w-full items-center gap-2 px-3 py-2.5 text-left active:bg-surface-2"
                   >
                     <span
-                      className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${MOVEMENT_ACCENT[m.type]}`}
+                      className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${movementAccent(m.type)}`}
                     >
-                      {MOVEMENT_SHORT[m.type]}
+                      {movementShort(m.type, m.stageName)}
                     </span>
                     <span className="nums shrink-0 text-sm font-semibold text-brand">
                       {m.orderCode}
@@ -181,7 +181,7 @@ export default function JournalList({
         open={del != null}
         onOpenChange={(v) => !v && setDel(null)}
         title="Xoá phiếu này?"
-        description={`Phiếu ${del ? MOVEMENT_SHORT[del.type] : ""} của ${del?.orderCode ?? ""}. Số liệu đã gửi/còn thiếu sẽ được tính lại.`}
+        description={`Phiếu ${del ? movementShort(del.type, del.stageName) : ""} của ${del?.orderCode ?? ""}. Số liệu đã gửi/còn thiếu sẽ được tính lại.`}
         confirmLabel="Xoá"
         danger
         onConfirm={confirmDelete}

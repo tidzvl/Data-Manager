@@ -326,7 +326,9 @@ export type MovementView = {
   orderId: number;
   orderCode: string;
   lineName: string | null;
-  type: MovementType;
+  /** null = đợt của một mục tự do; nhãn của nó nằm ở `stageName`. */
+  type: MovementType | null;
+  stageName: string | null;
   date: string; // yyyy-mm-dd
   note: string | null;
   total: number;
@@ -341,6 +343,7 @@ export type MovementView = {
 
 const movementInclude = {
   order: { select: { code: true, line: { select: { name: true } } } },
+  stage: { select: { name: true } },
   items: {
     include: {
       part: { select: { name: true, color: true } },
@@ -362,6 +365,7 @@ function toMovementView(mv: MovementWithAll): MovementView {
     orderCode: mv.order.code,
     lineName: mv.order.line?.name ?? null,
     type: mv.type,
+    stageName: mv.stage?.name ?? null,
     date: toDateStr(mv.date),
     note: mv.note,
     total: mv.items.reduce((a, it) => a + it.quantity, 0),

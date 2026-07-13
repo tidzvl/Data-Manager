@@ -37,3 +37,22 @@ export const MOVEMENT_TYPES: MovementType[] = [
 export function isPartLevel(type: MovementType): boolean {
   return type === "SEW_OUT";
 }
+
+/**
+ * Nhãn của một đợt trong nhật ký / lịch sử.
+ *
+ * Đợt của mục tự do không thuộc công đoạn nào, nên nó không có nhãn dựng sẵn —
+ * lấy tên của mục làm nhãn. Tra thẳng `MOVEMENT_SHORT[type]` với `type` null sẽ
+ * ra `undefined` và huy hiệu hiện ra trống trơn.
+ */
+export function movementShort(
+  type: MovementType | null,
+  stageName?: string | null
+): string {
+  return type ? MOVEMENT_SHORT[type] : (stageName?.trim() || "Mục riêng");
+}
+
+/** Màu huy hiệu; mục tự do dùng tông trung tính vì nó không nằm trong luồng. */
+export function movementAccent(type: MovementType | null): string {
+  return type ? MOVEMENT_ACCENT[type] : "text-muted bg-surface-2";
+}

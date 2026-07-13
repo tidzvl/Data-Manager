@@ -22,6 +22,11 @@ const cells = (v = 0): Cell[] => [
   { orderSizeId: null, value: 0, done: 0, target: 0 },
 ];
 
+/** Sau hai cột size là ba cột đuôi: Tổng (2), Ngày (3), Ghi chú (4). */
+const TOTAL = 2;
+const DATE = 3;
+const NOTE = 4;
+
 const batch = (key: string, movementId: number): GridChild => ({
   key,
   label: `Đợt ${key}`,
@@ -141,8 +146,39 @@ test("ô chỉ đọc: đi qua được, nhưng không gõ được", () => {
   assert.equal(isEditable(batchRow, 0), true, "ô của đợt gõ được");
   // Phân loại không khai báo size này → ô "–", đậu được nhưng không gõ.
   assert.equal(isEditable(batchRow, 1), false);
-  // Cột A không bao giờ gõ được, ở bất kỳ dòng nào.
-  assert.equal(isEditable(batchRow, COL_NAME), false);
+  // Tổng là số suy ra, ở mọi dòng.
+  assert.equal(isEditable(batchRow, TOTAL), false);
+});
+
+test("Ngày và Ghi chú gõ được ở LSX và ở đợt, không gõ được ở mục", () => {
+  const nav = full();
+  const orderRow = rowAt(nav, "order-1")!;
+  const stageRow = rowAt(nav, "order-1/stage-1")!;
+  const partRow = rowAt(nav, "order-1/stage-2/part-3")!;
+  const batchRow = rowAt(nav, "order-1/stage-1/mv-1-all")!;
+
+  for (const col of [DATE, NOTE]) {
+    assert.equal(isEditable(orderRow, col), true);
+    assert.equal(isEditable(batchRow, col), true);
+    // Ngày/Ghi chú của dòng mục là số liệu suy ra (ngày LSX, trạng thái đủ/thiếu).
+    assert.equal(isEditable(stageRow, col), false);
+    assert.equal(isEditable(partRow, col), false);
+  }
+});
+
+test("tên mục gõ được; tên của LSX, chi tiết, đợt thì không", () => {
+  const nav = full();
+
+  assert.equal(isEditable(rowAt(nav, "order-1/stage-1")!, COL_NAME), true);
+  assert.equal(isEditable(rowAt(nav, "order-1")!, COL_NAME), false);
+  assert.equal(
+    isEditable(rowAt(nav, "order-1/stage-2/part-3")!, COL_NAME),
+    false
+  );
+  assert.equal(
+    isEditable(rowAt(nav, "order-1/stage-1/mv-1-all")!, COL_NAME),
+    false
+  );
 });
 
 test("↑/↓ giữ nguyên cột và KHÔNG bỏ qua dòng chỉ đọc", () => {
@@ -181,8 +217,11 @@ test("←/→ đi trong dòng, dừng ở hai mép, không gập/mở gì cả",
 
   assert.deepEqual(moveHorizontal(nav, { id, col: COL_NAME }, 1), { id, col: 0 });
   assert.deepEqual(moveHorizontal(nav, { id, col: 0 }, 1), { id, col: 1 });
-  // Cột cuối rồi thì đứng yên, không tràn sang dòng khác.
-  assert.equal(moveHorizontal(nav, { id, col: 1 }, 1), null);
+  // Đi tiếp được qua cả cụm đuôi: Tổng → Ngày → Ghi chú.
+  assert.deepEqual(moveHorizontal(nav, { id, col: 1 }, 1), { id, col: TOTAL });
+  assert.deepEqual(moveHorizontal(nav, { id, col: DATE }, 1), { id, col: NOTE });
+  // Ghi chú là cột cuối: đứng yên, không tràn sang dòng khác.
+  assert.equal(moveHorizontal(nav, { id, col: NOTE }, 1), null);
 
   assert.deepEqual(moveHorizontal(nav, { id, col: 0 }, -1), { id, col: COL_NAME });
   // Cột A là mép trái.
@@ -192,17 +231,24 @@ test("←/→ đi trong dòng, dừng ở hai mép, không gập/mở gì cả",
 test("Tab bỏ qua ô không gõ được và tràn sang dòng kế", () => {
   const nav = full();
 
-  // Cột 1 không gõ được, nên Tab từ cột 0 của đợt 1 nhảy thẳng sang đợt 2.
+  // Cột 1 và cột Tổng không gõ được → Tab từ cột 0 nhảy thẳng tới ô Ngày.
   assert.deepEqual(moveTab(nav, { id: "order-1/stage-1/mv-1-all", col: 0 }, 1), {
-    id: "order-1/stage-1/mv-2-all",
-    col: 0,
+    id: "order-1/stage-1/mv-1-all",
+    col: DATE,
   });
 
-  // Từ dòng LSX (không có ô nào gõ được) Tab tìm xuống tới đợt đầu tiên.
-  assert.deepEqual(moveTab(nav, { id: "order-1", col: COL_NAME }, 1), {
-    id: "order-1/stage-1/mv-1-all",
-    col: 0,
-  });
+  // Hết ô gõ được của dòng thì mới tràn sang dòng kế.
+  assert.deepEqual(
+    moveTab(nav, { id: "order-1/stage-1/mv-1-all", col: NOTE }, 1),
+    { id: "order-1/stage-1/mv-2-all", col: 0 }
+  );
+
+  // Dòng mục không có ô số nào gõ được, nhưng TÊN của nó thì có — Tab lùi từ ô
+  // số đầu tiên của đợt phải đậu vào đó, chứ không phóng qua cả dòng mục.
+  assert.deepEqual(
+    moveTab(nav, { id: "order-1/stage-1/mv-1-all", col: 0 }, -1),
+    { id: "order-1/stage-1", col: COL_NAME }
+  );
 });
 
 test("Ctrl+←/→ gập, mở, và leo cây — cột giữ nguyên", () => {

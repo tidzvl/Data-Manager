@@ -5,7 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Pencil, Trash2, StickyNote, ChevronRight, ExternalLink } from "lucide-react";
 import type { MovementView } from "@/lib/aggregate";
-import { MOVEMENT_SHORT, MOVEMENT_ACCENT } from "@/lib/labels";
+import { movementAccent, movementShort } from "@/lib/labels";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import MovementFormModal, {
   type MovementModalTarget,
@@ -82,9 +82,9 @@ export default function JournalTable({
                     <td className="nums text-muted">{formatDate(m.date)}</td>
                     <td>
                       <span
-                        className={`rounded-md px-2 py-0.5 text-xs font-medium ${MOVEMENT_ACCENT[m.type]}`}
+                        className={`rounded-md px-2 py-0.5 text-xs font-medium ${movementAccent(m.type)}`}
                       >
-                        {MOVEMENT_SHORT[m.type]}
+                        {movementShort(m.type, m.stageName)}
                       </span>
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -184,7 +184,7 @@ export default function JournalTable({
         open={del != null}
         onOpenChange={(v) => !v && setDel(null)}
         title="Xoá phiếu này?"
-        description={`Phiếu ${del ? MOVEMENT_SHORT[del.type] : ""} của ${del?.orderCode ?? ""}. Số liệu đã gửi/còn thiếu sẽ được tính lại.`}
+        description={`Phiếu ${del ? movementShort(del.type, del.stageName) : ""} của ${del?.orderCode ?? ""}. Số liệu đã gửi/còn thiếu sẽ được tính lại.`}
         confirmLabel="Xoá"
         danger
         onConfirm={confirmDelete}

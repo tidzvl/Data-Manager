@@ -2,8 +2,8 @@ import "server-only";
 import { prisma } from "./db";
 import { ps } from "./keys";
 import {
-  MUC_LABEL,
   MUC_TYPES,
+  mucLabelOf,
   type Cell,
   type GridChild,
   type GridOrder,
@@ -79,18 +79,30 @@ function tally(order: OrderWithAll) {
     EMB_OUT: {},
     EMB_IN: {},
   };
+  /** stageId -> orderSizeId -> số lượng. Chỉ của mục tự do (không có `type`). */
+  const byStage = new Map<number, Record<number, number>>();
 
   for (const mv of order.movements) {
     for (const it of mv.items) {
-      bySize[mv.type][it.orderSizeId] =
-        (bySize[mv.type][it.orderSizeId] ?? 0) + it.quantity;
-      if (mv.type === "SEW_OUT" && it.partId != null) {
-        const k = ps(it.partId, it.orderSizeId);
-        sewOut[k] = (sewOut[k] ?? 0) + it.quantity;
+      // Mục hệ thống gom theo `type` — một phiếu nhập từ form có thể trải qua
+      // nhiều phân loại, mà `orderSizeId` vốn đã thuộc đúng một phân loại, nên
+      // cộng theo (type, size) là tự khắc đúng phân loại.
+      if (mv.type) {
+        bySize[mv.type][it.orderSizeId] =
+          (bySize[mv.type][it.orderSizeId] ?? 0) + it.quantity;
+        if (mv.type === "SEW_OUT" && it.partId != null) {
+          const k = ps(it.partId, it.orderSizeId);
+          sewOut[k] = (sewOut[k] ?? 0) + it.quantity;
+        }
+      } else if (mv.stageId != null) {
+        // Mục tự do không có `type` nào để gom; nó chỉ nhận diện được bằng stageId.
+        const byId = byStage.get(mv.stageId) ?? {};
+        byId[it.orderSizeId] = (byId[it.orderSizeId] ?? 0) + it.quantity;
+        byStage.set(mv.stageId, byId);
       }
     }
   }
-  return { sewOut, bySize };
+  return { sewOut, bySize, byStage };
 }
 
 type Category = OrderWithAll["categories"][number];
@@ -98,23 +110,37 @@ type Stage = Category["stages"][number];
 
 /** Số thực tế đã gửi/nhận của một mục tại một size — chính là số hiển thị ở ô. */
 function doneFor(
-  muc: MovementType,
+  stage: Stage,
   orderSizeId: number,
   t: ReturnType<typeof tally>
 ): number {
-  return t.bySize[muc][orderSizeId] ?? 0;
+  if (stage.type) return t.bySize[stage.type][orderSizeId] ?? 0;
+  return t.byStage.get(stage.id)?.[orderSizeId] ?? 0;
+}
+
+/** Các đợt thuộc về một mục — nguồn cho `batchRows`. */
+function movementsOf(order: OrderWithAll, stage: Stage) {
+  return stage.type
+    ? order.movements.filter((m) => m.type === stage.type)
+    : order.movements.filter((m) => m.stageId === stage.id);
 }
 
 /**
  * Các dòng "đợt" của một mục, giới hạn trong 1 phân loại (và 1 chi tiết nếu có).
  * Phiếu nào không chạm tới phân loại này thì bỏ hẳn — số thứ tự đợt đánh sau
  * khi lọc, nếu không nhãn sẽ nhảy cóc ("đợt 1, đợt 3").
+ *
+ * Trừ ĐỢT RỖNG: đợt tạo từ bảng bắt đầu bằng một dòng trắng, chưa có item nào
+ * để suy ngược ra nó thuộc phân loại/chi tiết nào — nên nó tự khai bằng
+ * `stageId`/`partId`. Không nhận ra nó ở đây thì dòng vừa thêm biến mất ngay
+ * trước mắt người dùng.
  */
 function batchRows(
   movements: OrderWithAll["movements"],
   cat: Category,
   cols: SizeColumn[],
   sizeByLabel: Map<string, number>,
+  stage: Stage,
   partId: number | null
 ): GridChild[] {
   const sizeIds = new Set(cat.orderSizes.map((s) => s.id));
@@ -127,7 +153,11 @@ function batchRows(
           (partId == null || it.partId === partId) && sizeIds.has(it.orderSizeId)
       ),
     }))
-    .filter((x) => x.items.length > 0)
+    .filter(
+      (x) =>
+        x.items.length > 0 ||
+        (x.mv.stageId === stage.id && x.mv.partId === partId)
+    )
     .map(({ mv, items }, index) => {
       const qty: Record<number, number> = {};
       for (const it of items)
@@ -143,11 +173,15 @@ function batchRows(
         };
       });
 
-      const verb =
-        mv.type === "SEW_OUT" || mv.type === "EMB_OUT" ? "Đã gửi" : "Đã nhận";
+      // Mục tự do không nằm trong luồng gửi/nhận nào, nên nó chỉ có "đợt".
+      const verb = !mv.type
+        ? ""
+        : mv.type === "SEW_OUT" || mv.type === "EMB_OUT"
+          ? "Đã gửi "
+          : "Đã nhận ";
       return {
         key: `mv-${mv.id}-${partId ?? "all"}`,
-        label: `${verb} đợt ${index + 1}`,
+        label: `${verb}đợt ${index + 1}`,
         dateLabel: dayLabel(mv.date),
         dateIso: toDateStr(mv.date),
         note: mv.note,
@@ -172,11 +206,16 @@ function buildRows(
   for (const cat of order.categories) {
     const sizeByLabel = new Map(cat.orderSizes.map((s) => [s.sizeLabel, s.id]));
 
-    // Chỉ những công đoạn đã được tạo mới thành dòng. Sắp theo luồng sản xuất
-    // chứ không theo thứ tự tạo, để bảng đọc được.
-    const stages = MUC_TYPES.map((m) =>
+    // Chỉ những mục đã được tạo mới thành dòng. Mục hệ thống sắp theo luồng sản
+    // xuất chứ không theo thứ tự tạo, để bảng đọc được; mục tự do không có chỗ
+    // nào trong luồng nên xếp sau, theo thứ tự người dùng thêm vào.
+    const system = MUC_TYPES.map((m) =>
       cat.stages.find((s) => s.type === m)
     ).filter((s): s is Stage => s !== undefined);
+    const custom = cat.stages
+      .filter((s) => s.type === null)
+      .sort((a, b) => a.position - b.position || a.id - b.id);
+    const stages = [...system, ...custom];
 
     const missingMucs = MUC_TYPES.filter(
       (m) => !cat.stages.some((s) => s.type === m)
@@ -184,13 +223,14 @@ function buildRows(
 
     for (const stage of stages) {
       const muc = stage.type;
+      const mucLabel = mucLabelOf(muc, stage.name);
       const cells = cols.map<Cell>((c, i) => {
         const osid = sizeByLabel.get(c.label) ?? null;
         if (!osid) return { orderSizeId: null, value: 0, done: 0, target: 0 };
         // Ô hiện TỔNG CÁC ĐỢT của mục này — số thật đã gửi/nhận, để đối chiếu
         // thẳng với SL gốc ở dòng LSX ngay phía trên. Không còn là SL kế hoạch
         // riêng của mục nữa (StageTarget không lên bảng).
-        const done = doneFor(muc, osid, t);
+        const done = doneFor(stage, osid, t);
         return {
           orderSizeId: osid,
           value: done,
@@ -205,7 +245,7 @@ function buildRows(
 
       if (muc === "SEW_OUT") {
         childHeader = "Chi tiết bán thành phẩm";
-        const sewOutMvs = order.movements.filter((m) => m.type === "SEW_OUT");
+        const sewOutMvs = movementsOf(order, stage);
 
         children = cat.parts.map((p) => {
           const partCells = cols.map<Cell>((c) => {
@@ -221,7 +261,14 @@ function buildRows(
             };
           });
 
-          const batches = batchRows(sewOutMvs, cat, cols, sizeByLabel, p.id);
+          const batches = batchRows(
+            sewOutMvs,
+            cat,
+            cols,
+            sizeByLabel,
+            stage,
+            p.id
+          );
 
           return {
             key: `part-${p.id}`,
@@ -239,12 +286,13 @@ function buildRows(
           };
         });
       } else {
-        childHeader = `Lịch sử ${MUC_LABEL[muc].toLowerCase()}`;
+        childHeader = `Lịch sử ${mucLabel.toLowerCase()}`;
         children = batchRows(
-          order.movements.filter((m) => m.type === muc),
+          movementsOf(order, stage),
           cat,
           cols,
           sizeByLabel,
+          stage,
           null
         );
       }
@@ -259,7 +307,7 @@ function buildRows(
         categoryId: cat.id,
         categoryName: cat.name,
         muc,
-        mucLabel: MUC_LABEL[muc],
+        mucLabel,
         missingMucs,
         note: order.note,
         createdAt: fullDayLabel(order.createdAt),
@@ -300,7 +348,7 @@ function emptyCategoryRow(
     lineName: order.line?.name ?? null,
     categoryId: cat.id,
     categoryName: cat.name,
-    muc: "SEW_OUT",
+    muc: null,
     mucLabel: "—",
     missingMucs,
     note: order.note,

@@ -22,7 +22,10 @@ export default async function EditMovementPage({
       include: { items: true },
     }),
   ]);
-  if (!detail || !movement || movement.orderId !== orderId) notFound();
+  // Đợt của mục tự do không có công đoạn nào trong luồng để form này bám vào —
+  // nó chỉ sửa được ngay trên bảng.
+  if (!detail || !movement || movement.orderId !== orderId || !movement.type)
+    notFound();
 
   const qty: Record<string, number> = {};
   for (const it of movement.items) {

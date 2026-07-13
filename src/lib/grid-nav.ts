@@ -28,21 +28,47 @@ export type NavRow = {
   expanded: boolean;
   /** id của dòng cấp trên; null ở dòng LSX. */
   parentId: string | null;
-  /** Ô nào GÕ được, theo chỉ số cột size. Ô không gõ được vẫn ĐI QUA được. */
+  /**
+   * Ô nào GÕ được, theo chỉ số cột: size 0..n-1, rồi Tổng, Ngày, Ghi chú.
+   * Ô không gõ được vẫn ĐI QUA được.
+   */
   editable: boolean[];
+  /** Cột A có gõ được không — đổi tên mục. Cột A nằm ngoài mảng `editable`. */
+  nameEditable: boolean;
 };
 
 /**
  * Con trỏ trỏ theo `id` chứ không theo chỉ số: mở/gập dòng làm chỉ số trượt đi.
- * `col` = -1 là cột A (tên), 0..n-1 là các cột size.
+ * `col` = -1 là cột A (tên), 0..n-1 là các cột size, rồi Tổng / Ngày / Ghi chú.
  */
 export type Cursor = { id: string; col: number };
 
 /**
- * Cột A — ô tên ở mép trái mỗi dòng. Là một ô thật như mọi ô khác: mũi tên đi
- * qua nó, chỉ có điều gõ số vào thì không được.
+ * Cột A — ô tên ở mép trái mỗi dòng. Vẫn nằm riêng, vì nó không phải một ô của
+ * lưới: nó dính trái, ôm cả checkbox lẫn nút gập, và CSS kéo khung ô từ chính
+ * `.sheet-row` xuống. Cho nó chỉ số -1 rẻ hơn là dồn cả bảng sang 1-based.
  */
 export const COL_NAME = -1;
+
+/**
+ * Ba cột đuôi, sau cụm size: Tổng (chỉ đọc), Ngày, Ghi chú.
+ * Mũi tên đi tới được cả ba — "khắp các ô" phải nghĩa là khắp thật.
+ */
+export const TAIL_COLS = 3;
+export const colTotal = (n: number) => n;
+export const colDate = (n: number) => n + 1;
+export const colNote = (n: number) => n + 2;
+
+/**
+ * Dựng mảng `editable` đủ chiều dài cho một dòng: `n` cột size + ba cột đuôi.
+ * Mọi dòng phải cùng chiều dài, không thì ↑/↓ giữ nguyên cột sẽ rơi ra ngoài.
+ */
+export function editableCols(
+  sizes: boolean[],
+  tail: { date: boolean; note: boolean }
+): boolean[] {
+  return [...sizes, false, tail.date, tail.note];
+}
 
 /**
  * Chiếu cây đang hiển thị thành danh sách phẳng. Dòng gập lại thì con của nó
@@ -74,7 +100,12 @@ export function buildNav(
       expandable: order.rows.length > 0,
       expanded: orderOpen,
       parentId: null,
-      editable: order.plan.map(() => false),
+      editable: editableCols(
+        order.plan.map(() => false),
+        { date: true, note: true }
+      ),
+      // Mã LSX sửa trong form của nó, không sửa ở bảng.
+      nameEditable: false,
     });
 
     if (!orderOpen) continue;
@@ -102,7 +133,14 @@ export function buildNav(
         expanded: open,
         parentId: order.key,
         // Ô dòng mục là tổng các đợt bên dưới — số suy ra, không gõ thẳng được.
-        editable: row.cells.map(() => false),
+        // Ngày/Ghi chú của nó cũng là số liệu suy ra (ngày LSX, trạng thái đủ/thiếu).
+        editable: editableCols(
+          row.cells.map(() => false),
+          { date: false, note: false }
+        ),
+        // Nhưng TÊN mục thì gõ được: đổi tên tại chỗ, và đó cũng là chỗ mục tự
+        // do sống. Dòng giữ chỗ chưa có mục nào thì chưa có gì để đặt tên.
+        nameEditable: row.stageId > 0,
       });
 
       if (!open) continue;
@@ -121,7 +159,13 @@ export function buildNav(
             expandable: true,
             expanded: partOpen,
             parentId: rowId,
-            editable: part.cells.map((c) => c.orderSizeId != null),
+            // Chi tiết chỉ có định mức; nó không có ngày, còn ghi chú là chữ
+            // "Định mức" cố định.
+            editable: editableCols(
+              part.cells.map((c) => c.orderSizeId != null),
+              { date: false, note: false }
+            ),
+            nameEditable: false,
           });
 
           if (!partOpen) continue;
@@ -136,7 +180,11 @@ export function buildNav(
               expandable: false,
               expanded: false,
               parentId: partId,
-              editable: b.cells.map((c) => c.orderSizeId != null),
+              editable: editableCols(
+                b.cells.map((c) => c.orderSizeId != null),
+                { date: true, note: true }
+              ),
+              nameEditable: false,
             });
         }
       } else {
@@ -154,7 +202,11 @@ export function buildNav(
             expandable: false,
             expanded: false,
             parentId: rowId,
-            editable: child.cells.map((c) => c.orderSizeId != null),
+            editable: editableCols(
+              child.cells.map((c) => c.orderSizeId != null),
+              { date: true, note: true }
+            ),
+            nameEditable: false,
           });
       }
     }
@@ -176,25 +228,32 @@ export function rowAt(nav: NavRow[], id: string): NavRow | undefined {
   return nav[indexOfRow(nav, id)];
 }
 
-/** Ô này gõ số vào được không. Cột A thì không bao giờ. */
+/** Ô này gõ được không. */
 export function isEditable(r: NavRow | undefined, col: number): boolean {
-  if (!r || col === COL_NAME) return false;
+  if (!r) return false;
+  if (col === COL_NAME) return r.nameEditable;
   return !!r.editable[col];
 }
 
+/**
+ * "Không có ô nào" — KHÔNG dùng -1, vì -1 giờ là một cột thật (cột A). Lẫn hai
+ * cái đó thì Tab ở một dòng không có ô nào gõ được sẽ nhảy vào ô tên của nó.
+ */
+export const NO_COL = -2;
+
+/** Ô GÕ ĐƯỢC kề bên trong cùng một dòng, quét cả cột A. Chỉ Tab dùng tới. */
+function nextEditableCol(r: NavRow, from: number, dir: 1 | -1): number {
+  for (let c = from + dir; c >= COL_NAME && c < r.editable.length; c += dir)
+    if (isEditable(r, c)) return c;
+  return NO_COL;
+}
+
 export function firstEditableCol(r: NavRow): number {
-  return r.editable.indexOf(true);
+  return nextEditableCol(r, COL_NAME - 1, 1);
 }
 
 export function lastEditableCol(r: NavRow): number {
-  return r.editable.lastIndexOf(true);
-}
-
-/** Ô GÕ ĐƯỢC kề bên trong cùng một dòng; -1 nếu hết. Chỉ Tab dùng tới. */
-function nextEditableCol(r: NavRow, from: number, dir: 1 | -1): number {
-  for (let c = from + dir; c >= 0 && c < r.editable.length; c += dir)
-    if (r.editable[c]) return c;
-  return -1;
+  return nextEditableCol(r, r.editable.length, -1);
 }
 
 /**
@@ -237,18 +296,12 @@ export function moveTab(nav: NavRow[], cur: Cursor, dir: 1 | -1): Cursor | null 
   const i = indexOfRow(nav, cur.id);
   if (i < 0) return null;
 
-  if (cur.col !== COL_NAME) {
-    const c = nextEditableCol(nav[i], cur.col, dir);
-    if (c >= 0) return { id: nav[i].id, col: c };
-  } else if (dir > 0) {
-    // Từ cột A, Tab vào ô gõ được đầu tiên của chính dòng đó trước.
-    const c = firstEditableCol(nav[i]);
-    if (c >= 0) return { id: nav[i].id, col: c };
-  }
+  const here = nextEditableCol(nav[i], cur.col, dir);
+  if (here !== NO_COL) return { id: nav[i].id, col: here };
 
   for (let j = i + dir; j >= 0 && j < nav.length; j += dir) {
     const c = dir > 0 ? firstEditableCol(nav[j]) : lastEditableCol(nav[j]);
-    if (c >= 0) return { id: nav[j].id, col: c };
+    if (c !== NO_COL) return { id: nav[j].id, col: c };
   }
   return null;
 }

@@ -13,7 +13,12 @@ import {
 } from "lucide-react";
 import type { MovementView } from "@/lib/aggregate";
 import type { MovementType } from "@prisma/client";
-import { MOVEMENT_SHORT, MOVEMENT_ACCENT, MOVEMENT_TYPES } from "@/lib/labels";
+import {
+  MOVEMENT_SHORT,
+  MOVEMENT_TYPES,
+  movementAccent,
+  movementShort,
+} from "@/lib/labels";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import MovementFormModal, {
   type MovementModalTarget,
@@ -164,9 +169,9 @@ export default function HistoryTable({
                       <td className="nums text-muted">{formatDate(m.date)}</td>
                       <td>
                         <span
-                          className={`rounded-md px-2 py-0.5 text-xs font-medium ${MOVEMENT_ACCENT[m.type]}`}
+                          className={`rounded-md px-2 py-0.5 text-xs font-medium ${movementAccent(m.type)}`}
                         >
-                          {MOVEMENT_SHORT[m.type]}
+                          {movementShort(m.type, m.stageName)}
                         </span>
                       </td>
                       <td className="max-w-[24rem] truncate text-muted">

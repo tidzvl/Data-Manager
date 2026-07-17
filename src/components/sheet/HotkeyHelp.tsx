@@ -35,7 +35,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
       [["+", "–", "*", "/"], "Gõ được cả biểu thức: 100+200 → 300"],
       [["Esc"], "Huỷ ô đang sửa, không lưu"],
       [["Delete"], "Ở ô số: đặt về 0. Ở ô khác: xoá cả dòng"],
-      [["a"], "Thêm đợt trống vào nhóm đang trỏ; ở Gửi may là thêm chi tiết"],
+      [["a"], "Thêm đợt trống vào nhóm đang trỏ"],
     ],
   },
   {

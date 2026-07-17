@@ -78,7 +78,7 @@ export type MovementFormData = {
 export async function loadMovementForm(
   orderId: number,
   movementId?: number,
-  type: MovementType = "SEW_OUT"
+  type: MovementType = "SEW_IN"
 ): Promise<MovementFormData> {
   await requireSession();
 

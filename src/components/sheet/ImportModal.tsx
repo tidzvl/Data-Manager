@@ -25,9 +25,9 @@ import {
  * Nhập nhanh nhiều LSX bằng cách dán các dòng từ sheet quản lý sản xuất.
  *
  * Dán xong sẽ ra một bảng nháp sửa được: mỗi dòng là (LSX × Phân loại), nên
- * hàng "Bộ" tách thành hai dòng Áo/Quần độc lập. Cột Mục quyết định số lượng
- * mang nghĩa gì — "Gửi may" thì mở ra được danh sách chi tiết kèm định mức,
- * các mục khác thì số lượng thành một đợt gửi/nhận và không có chi tiết.
+ * hàng "Bộ" tách thành hai dòng Áo/Quần độc lập. Số lượng thành SL kế hoạch
+ * của mục được chọn (Nhận may / Nhận thêu). Nhánh mở rộng chi tiết bên dưới
+ * là di sản của mục "Gửi may" đã bỏ — không còn kích hoạt được.
  */
 export default function ImportModal({
   open,
@@ -248,9 +248,7 @@ export default function ImportModal({
               thì dòng được <b className="text-ink">ghép thêm mục</b> vào nó, chỉ
               bỏ qua khi trùng cả LSX + phân loại + mục. Số lượng dán vào là{" "}
               <b className="text-ink">SL kế hoạch</b>, không phải hàng đã
-              gửi/nhận — import không tạo đợt nào cả. Riêng{" "}
-              <b className="text-ink">Gửi may</b> thì số lượng thành định mức của
-              từng chi tiết; các mục khác không tạo chi tiết.
+              nhận — import không tạo đợt nào cả.
             </p>
           </>
         )}

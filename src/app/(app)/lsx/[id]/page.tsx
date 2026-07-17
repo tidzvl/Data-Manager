@@ -23,7 +23,7 @@ const MOBILE_TABS = [
   { key: "history", label: "Lịch sử" },
 ];
 
-const DESKTOP_TABS = ["detail", "finished", "history"];
+const DESKTOP_TABS = ["finished", "history"];
 
 export default async function OrderHubPage({
   params,
@@ -40,7 +40,7 @@ export default async function OrderHubPage({
 
   const mobileTab = tab ?? "overview";
   // Desktop không có tab "Tổng quan" (số liệu nằm ngay trên đầu trang)
-  const desktopTab = DESKTOP_TABS.includes(tab ?? "") ? tab! : "detail";
+  const desktopTab = DESKTOP_TABS.includes(tab ?? "") ? tab! : "finished";
 
   const progress = computeProgress(detail);
   const movements = tab === "history" ? await getOrderMovements(orderId) : [];

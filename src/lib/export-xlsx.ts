@@ -88,7 +88,7 @@ export async function buildGridWorkbook(
     ["Xuất lúc", meta.exportedAt.toLocaleString("vi-VN")],
     ["Phạm vi", meta.scope],
     ["Số dòng mục", rows.length],
-    ["Ghi chú", "Dòng Mục = SL kế hoạch. Dòng Chi tiết = định mức. Dòng Đợt = SL đã gửi/nhận."],
+    ["Ghi chú", "Dòng Mục = SL kế hoạch. Dòng Đợt = SL đã nhận thật."],
   ]);
   info.getColumn(1).font = { bold: true };
 

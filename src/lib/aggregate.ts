@@ -1,7 +1,17 @@
 import "server-only";
 import { prisma } from "./db";
 import { ps } from "./keys";
+import { MOVEMENT_TYPES } from "./labels";
 import type { MovementType, Prisma } from "@prisma/client";
+
+/**
+ * Điều kiện "phiếu còn được xem": mục hệ thống phải thuộc MOVEMENT_TYPES
+ * (loại phiếu Gửi may/Gửi thêu cũ), còn đợt của mục tự do (`type` null) giữ
+ * nguyên. Dữ liệu cũ vẫn trong DB — chỉ ẩn khỏi nhật ký và lịch sử.
+ */
+const VISIBLE_MOVEMENT: Prisma.MovementWhereInput = {
+  OR: [{ type: null }, { type: { in: MOVEMENT_TYPES } }],
+};
 
 export type SizeInfo = {
   id: number;
@@ -389,7 +399,7 @@ export async function getOrderMovements(
   orderId: number
 ): Promise<MovementView[]> {
   const movements = await prisma.movement.findMany({
-    where: { orderId },
+    where: { orderId, ...VISIBLE_MOVEMENT },
     orderBy: MOVEMENT_ORDER,
     include: movementInclude,
   });
@@ -415,28 +425,35 @@ export async function getJournal(opts?: {
   const perPage = opts?.perPage ?? PER_PAGE;
   const day = opts?.day ? parseDay(opts.day) : undefined;
 
+  // Gom bằng AND vì cả điều kiện hiển thị lẫn ô tìm kiếm đều dùng OR riêng.
   const where: Prisma.MovementWhereInput = {
-    ...(opts?.type ? { type: opts.type } : {}),
-    ...(day ? { date: day } : {}),
-    ...(q
-      ? {
-          OR: [
-            { note: { contains: q } },
-            { order: { code: { contains: q } } },
-            { order: { productName: { contains: q } } },
-            { order: { line: { name: { contains: q } } } },
-            { items: { some: { part: { name: { contains: q } } } } },
+    AND: [
+      opts?.type ? { type: opts.type } : VISIBLE_MOVEMENT,
+      ...(day ? [{ date: day }] : []),
+      ...(q
+        ? [
             {
-              items: { some: { orderSize: { sizeLabel: { contains: q } } } },
+              OR: [
+                { note: { contains: q } },
+                { order: { code: { contains: q } } },
+                { order: { productName: { contains: q } } },
+                { order: { line: { name: { contains: q } } } },
+                { items: { some: { part: { name: { contains: q } } } } },
+                {
+                  items: {
+                    some: { orderSize: { sizeLabel: { contains: q } } },
+                  },
+                },
+                {
+                  items: {
+                    some: { orderSize: { category: { name: { contains: q } } } },
+                  },
+                },
+              ],
             },
-            {
-              items: {
-                some: { orderSize: { category: { name: { contains: q } } } },
-              },
-            },
-          ],
-        }
-      : {}),
+          ]
+        : []),
+    ],
   };
 
   const total = await prisma.movement.count({ where });

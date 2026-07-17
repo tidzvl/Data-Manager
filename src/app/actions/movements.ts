@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { isPartLevel } from "@/lib/labels";
+import { isPartLevel, MOVEMENT_TYPES } from "@/lib/labels";
 import type { MovementType } from "@prisma/client";
 
 export type MovementItemInput = {
@@ -32,6 +32,11 @@ export async function saveMovement(
   input: MovementInput
 ): Promise<MovementResult> {
   await requireSession();
+
+  // Gửi may/Gửi thêu đã bị bỏ — form không còn đưa ra, nhưng chặn cả ở đây.
+  if (!MOVEMENT_TYPES.includes(input.type)) {
+    return { ok: false, error: "Loại phiếu này không còn được dùng." };
+  }
 
   const items = input.items.filter((it) => it.quantity > 0);
   if (items.length === 0) {

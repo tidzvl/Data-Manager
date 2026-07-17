@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "./db";
+import { MUC_TYPES } from "./grid-types";
 import type { MovementType } from "@prisma/client";
 
 /**
@@ -95,6 +96,9 @@ export async function addStageDb(
   type: MovementType,
   sourceStageId?: number
 ): Promise<string | null> {
+  // Gửi may/Gửi thêu đã bị bỏ — menu không còn đưa ra, nhưng chặn cả ở đây.
+  if (!MUC_TYPES.includes(type)) return "Mục này không còn được dùng.";
+
   const existing = await prisma.stage.findFirst({ where: { categoryId, type } });
   if (existing) return "Mục này đã có rồi.";
 

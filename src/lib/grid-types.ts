@@ -2,12 +2,11 @@
 // Phần truy vấn DB nằm ở `grid.ts` (server-only), không import từ client.
 import type { MovementType } from "@prisma/client";
 
-export const MUC_TYPES: MovementType[] = [
-  "SEW_OUT",
-  "SEW_IN",
-  "EMB_OUT",
-  "EMB_IN",
-];
+/**
+ * Các mục còn dùng. "Gửi may"/"Gửi thêu" (SEW_OUT/EMB_OUT) đã bị khách bỏ:
+ * dữ liệu cũ vẫn nằm trong DB nhưng không hiển thị và không tạo mới được nữa.
+ */
+export const MUC_TYPES: MovementType[] = ["SEW_IN", "EMB_IN"];
 
 export const MUC_LABEL: Record<MovementType, string> = {
   SEW_OUT: "Gửi may",

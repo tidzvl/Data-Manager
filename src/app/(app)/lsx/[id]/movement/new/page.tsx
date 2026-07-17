@@ -6,7 +6,7 @@ import MovementForm from "../MovementForm";
 
 export const dynamic = "force-dynamic";
 
-const VALID: MovementType[] = ["SEW_OUT", "SEW_IN", "EMB_OUT", "EMB_IN"];
+const VALID: MovementType[] = ["SEW_IN", "EMB_IN"];
 
 export default async function NewMovementPage({
   params,
@@ -19,7 +19,7 @@ export default async function NewMovementPage({
   const { type } = await searchParams;
   const orderId = Number(id);
   const t = (
-    VALID.includes(type as MovementType) ? type : "SEW_OUT"
+    VALID.includes(type as MovementType) ? type : "SEW_IN"
   ) as MovementType;
 
   const detail = await getOrderDetail(orderId);

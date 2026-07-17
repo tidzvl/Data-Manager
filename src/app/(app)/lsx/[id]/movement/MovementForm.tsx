@@ -16,7 +16,7 @@ const HINT: Record<MovementType, string> = {
   SEW_OUT: "So với SL chi tiết cần xuất",
   SEW_IN: "So với SL kế hoạch của LSX",
   EMB_OUT: "Chỉ gửi được phần đã may mà chưa gửi thêu",
-  EMB_IN: "Chỉ nhận được phần đang nằm ở xưởng thêu",
+  EMB_IN: "So với SL kế hoạch của LSX",
 };
 
 function today(): string {
@@ -85,10 +85,10 @@ export default function MovementForm({
         return Math.max(0, sewn - (sent - own));
       }
       case "EMB_IN": {
-        // trần = hàng đang nằm ở xưởng thêu
-        const sent = detail.embOutBySize[sizeId] ?? 0;
+        // Trần = SL kế hoạch, giống Nhận may. Trước đây so với số đã gửi thêu,
+        // nhưng mục Gửi thêu đã bị bỏ nên không còn số đó để đối chiếu.
         const back = detail.embInBySize[sizeId] ?? 0;
-        return Math.max(0, sent - (back - own));
+        return Math.max(0, sizeTarget - (back - own));
       }
     }
   };

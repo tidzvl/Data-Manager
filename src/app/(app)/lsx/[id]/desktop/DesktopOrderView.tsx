@@ -1,9 +1,7 @@
 import Link from "next/link";
 import {
   ClipboardList,
-  Scissors,
   Shirt,
-  Sparkles,
   PackageCheck,
   ChevronRight,
   Factory,
@@ -17,12 +15,10 @@ import OrderMenu from "../OrderMenu";
 import OrderTree from "./OrderTree";
 import DesktopTabs from "./DesktopTabs";
 import MovementActions from "./MovementActions";
-import PartsMatrixTable from "./PartsMatrixTable";
 import SizesTable from "./SizesTable";
 import HistoryTable from "./HistoryTable";
 
 const TABS = [
-  { key: "detail", label: "Chi tiết xuất" },
   { key: "finished", label: "May & Thêu" },
   { key: "history", label: "Lịch sử phiếu" },
 ];
@@ -43,7 +39,7 @@ export default function DesktopOrderView({
 }) {
   const p = computeProgress(detail);
   const sewnPct = pct(p.sewnDone, p.sewnTarget);
-  const detailPct = pct(p.detailDone, p.detailTarget);
+  const embPct = pct(p.embBack, p.sewnTarget);
 
   const shortfalls: { label: string; short: number }[] = [];
   for (const c of detail.categories)
@@ -106,7 +102,7 @@ export default function DesktopOrderView({
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">Quy trình</h2>
           <p className="text-xs text-faint">
-            Xuất chi tiết → chuyền trả hàng đã may → gửi đi thêu → nhận về
+            Chuyền trả hàng đã may → nhận hàng thêu về
           </p>
         </div>
         <div className="flex items-stretch gap-2">
@@ -115,15 +111,6 @@ export default function DesktopOrderView({
             label="Kế hoạch"
             value={p.sewnTarget}
             tone="text-muted"
-          />
-          <Arrow />
-          <Stage
-            Icon={Scissors}
-            label="Chi tiết đã xuất"
-            value={p.detailDone}
-            sub={`${detailPct}% của ${p.detailTarget}`}
-            tone="text-brand"
-            percent={detailPct}
           />
           <Arrow />
           <Stage
@@ -136,18 +123,12 @@ export default function DesktopOrderView({
           />
           <Arrow />
           <Stage
-            Icon={Sparkles}
-            label="Đang ở thêu"
-            value={p.atEmbroidery}
-            sub={`đã gửi ${p.embSent}`}
-            tone={p.atEmbroidery > 0 ? "text-warn" : "text-faint"}
-          />
-          <Arrow />
-          <Stage
             Icon={PackageCheck}
-            label="Thêu xong"
+            label="Nhận thêu"
             value={p.embBack}
+            sub={`${embPct}% của ${p.sewnTarget}`}
             tone="text-ok"
+            percent={embPct}
           />
         </div>
 
@@ -179,7 +160,6 @@ export default function DesktopOrderView({
         <div className="min-w-0">
           <DesktopTabs tabs={TABS} current={tab} />
           <div className="pt-4">
-            {tab === "detail" && <PartsMatrixTable detail={detail} />}
             {tab === "finished" && <SizesTable detail={detail} />}
             {tab === "history" && (
               <HistoryTable orderId={detail.id} movements={movements} />

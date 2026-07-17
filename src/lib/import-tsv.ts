@@ -230,10 +230,9 @@ export function sizeSummary(row: ParsedRow, sizeLabels: string[]): string {
 
 export type Muc = "SEW_OUT" | "SEW_IN" | "EMB_OUT" | "EMB_IN";
 
+/** Gửi may/Gửi thêu đã bị bỏ — import chỉ còn tạo được 2 mục "nhận". */
 export const MUC_CHOICES: { value: Muc; label: string }[] = [
-  { value: "SEW_OUT", label: "Gửi may" },
   { value: "SEW_IN", label: "Nhận may" },
-  { value: "EMB_OUT", label: "Gửi thêu" },
   { value: "EMB_IN", label: "Nhận thêu" },
 ];
 
@@ -257,11 +256,11 @@ export type ImportDraft = {
 
 /**
  * Mục mặc định khi vừa dán vào, suy từ Danh mục: hàng đội tuyển / câu lạc bộ
- * phải thêu logo trước rồi mới may, nên bắt đầu ở "Gửi thêu"; còn lại vào thẳng
- * chuyền may. Vẫn sửa tay được từng dòng trong modal.
+ * đi theo nhánh thêu nên vào "Nhận thêu"; còn lại theo dõi ở "Nhận may".
+ * Vẫn sửa tay được từng dòng trong modal.
  */
 export function defaultMucFor(category: string | null): Muc {
-  return category && EMBROIDERY_GROUPS.has(category) ? "EMB_OUT" : "SEW_OUT";
+  return category && EMBROIDERY_GROUPS.has(category) ? "EMB_IN" : "SEW_IN";
 }
 
 /**

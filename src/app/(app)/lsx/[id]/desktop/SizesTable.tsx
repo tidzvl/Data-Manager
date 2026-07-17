@@ -1,7 +1,7 @@
 import type { OrderDetail } from "@/lib/aggregate";
 import { pct } from "@/components/ProgressBar";
 
-/** Bảng theo size: kế hoạch → đã may → gửi thêu → nhận về → còn ở thêu. */
+/** Bảng theo size: kế hoạch → đã may → nhận thêu. */
 export default function SizesTable({ detail }: { detail: OrderDetail }) {
   if (detail.categories.length === 0)
     return (
@@ -17,10 +17,9 @@ export default function SizesTable({ detail }: { detail: OrderDetail }) {
           (a, s) => ({
             target: a.target + s.targetQty,
             sewn: a.sewn + (detail.sewInBySize[s.id] ?? 0),
-            sent: a.sent + (detail.embOutBySize[s.id] ?? 0),
             back: a.back + (detail.embInBySize[s.id] ?? 0),
           }),
-          { target: 0, sewn: 0, sent: 0, back: 0 }
+          { target: 0, sewn: 0, back: 0 }
         );
 
         return (
@@ -43,18 +42,14 @@ export default function SizesTable({ detail }: { detail: OrderDetail }) {
                   <th className="!text-right">Đã may</th>
                   <th className="!text-right">Còn thiếu</th>
                   <th className="min-w-[10rem]">Tiến độ may</th>
-                  <th className="!text-right">Gửi thêu</th>
-                  <th className="!text-right">Nhận về</th>
-                  <th className="!text-right">Còn ở thêu</th>
+                  <th className="!text-right">Nhận thêu</th>
                 </tr>
               </thead>
               <tbody>
                 {c.sizes.map((s) => {
                   const sewn = detail.sewInBySize[s.id] ?? 0;
-                  const sent = detail.embOutBySize[s.id] ?? 0;
                   const back = detail.embInBySize[s.id] ?? 0;
                   const short = s.targetQty - sewn;
-                  const atEmb = sent - back;
                   const p = pct(sewn, s.targetQty);
                   return (
                     <tr key={s.id}>
@@ -87,17 +82,7 @@ export default function SizesTable({ detail }: { detail: OrderDetail }) {
                           </span>
                         </div>
                       </td>
-                      <td className="num text-muted">{sent || "—"}</td>
                       <td className="num text-muted">{back || "—"}</td>
-                      <td className="num">
-                        {atEmb > 0 ? (
-                          <span className="rounded-md bg-warn-soft px-1.5 py-0.5 font-medium text-warn">
-                            {atEmb}
-                          </span>
-                        ) : (
-                          <span className="text-faint">—</span>
-                        )}
-                      </td>
                     </tr>
                   );
                 })}
@@ -117,11 +102,7 @@ export default function SizesTable({ detail }: { detail: OrderDetail }) {
                     {tot.target - tot.sewn > 0 ? tot.target - tot.sewn : "✓"}
                   </td>
                   <td className="px-3 py-2" />
-                  <td className="num px-3 py-2 font-semibold">{tot.sent}</td>
                   <td className="num px-3 py-2 font-semibold">{tot.back}</td>
-                  <td className="num px-3 py-2 font-semibold text-warn">
-                    {tot.sent - tot.back || "—"}
-                  </td>
                 </tr>
               </tfoot>
             </table>

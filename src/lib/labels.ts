@@ -1,9 +1,9 @@
 import type { MovementType } from "@prisma/client";
 
 /**
- * Luồng sản xuất:
- * SEW_OUT → SEW_IN → EMB_OUT → EMB_IN
- * (xuất chi tiết) → (chuyền trả hàng đã may) → (gửi hàng đã may đi thêu) → (nhận thêu về)
+ * Luồng sản xuất còn theo dõi: SEW_IN (nhận may) → EMB_IN (nhận thêu).
+ * Các record dưới đây vẫn đủ 4 khoá vì enum trong DB giữ nguyên — chỉ 2 mục
+ * trong MOVEMENT_TYPES là còn được hiển thị/tạo mới.
  */
 export const MOVEMENT_LABELS: Record<MovementType, string> = {
   SEW_OUT: "Xuất chi tiết → chuyền may",
@@ -26,12 +26,11 @@ export const MOVEMENT_ACCENT: Record<MovementType, string> = {
   EMB_IN: "text-ok bg-ok-soft",
 };
 
-export const MOVEMENT_TYPES: MovementType[] = [
-  "SEW_OUT",
-  "SEW_IN",
-  "EMB_OUT",
-  "EMB_IN",
-];
+/**
+ * Các mục còn dùng. "Gửi may"/"Gửi thêu" (SEW_OUT/EMB_OUT) đã bị khách bỏ:
+ * phiếu cũ vẫn trong DB nhưng bị ẩn khỏi mọi danh sách và không tạo mới được.
+ */
+export const MOVEMENT_TYPES: MovementType[] = ["SEW_IN", "EMB_IN"];
 
 /** Chỉ phiếu xuất chi tiết mới ghi theo từng chi tiết; còn lại ghi theo size. */
 export function isPartLevel(type: MovementType): boolean {

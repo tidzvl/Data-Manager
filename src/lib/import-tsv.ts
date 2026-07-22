@@ -5,10 +5,16 @@
  * client, còn server thì bóc lại từ text thô chứ không tin dữ liệu client gửi lên.
  *
  * Sheet không có dòng tiêu đề, nên mọi thứ định vị bằng chỉ số cột. Các chỉ số
- * dưới đây đã đối chiếu với file mẫu 104 cột × 7 dòng.
+ * dưới đây là VỊ TRÍ GỐC, đối chiếu với file mẫu 104 cột × 7 dòng.
+ *
+ * Nhưng sheet nguồn thỉnh thoảng thêm/bớt một cột (thường ở khu đầu: ảnh TLSX /
+ * vải / in), làm mọi trường từ Đơn vị trở đi trôi sang trái/phải. Để không phải
+ * canh tay lại mỗi lần, `parseTsv` tự suy "độ trôi" (`shift`) của từng dòng từ
+ * hai mốc nhận diện được bằng NỘI DUNG — Đơn vị (`Cái`/`Bộ`) và Danh mục (danh
+ * sách đóng) — rồi đọc mọi cột định vị theo `COL.x + shift`. Xem `detectShift`.
  */
 
-/** Cột đầu tiên của khối size (đơn đặt hàng). */
+/** Cột đầu tiên của khối size (đơn đặt hàng) — vị trí gốc, cộng thêm `shift`. */
 export const SIZE_COL_START = 12;
 /** 11 ô, ánh xạ 1:1 vào SizeType theo `position` 0→10. */
 export const SIZE_COL_COUNT = 11;
@@ -122,6 +128,68 @@ function uniq(names: string[]): string[] {
   return out;
 }
 
+/** Trần độ trôi chấp nhận được: quá mốc này coi như mốc hỏng, quay về vị trí gốc. */
+const MAX_SHIFT = 8;
+
+/**
+ * Cột Đơn vị: ô đúng bằng "Cái" hoặc "Bộ", gần vị trí gốc nhất (đề phòng chuỗi
+ * này lỡ xuất hiện ở ô khác). -1 nếu không thấy.
+ */
+function findUnitCol(cols: string[]): number {
+  let best = -1;
+  for (let i = 0; i < cols.length; i++) {
+    const v = cell(cols, i);
+    if (v !== "Cái" && v !== "Bộ") continue;
+    if (best < 0 || Math.abs(i - COL.unit) < Math.abs(best - COL.unit)) best = i;
+  }
+  return best;
+}
+
+/**
+ * Cột Danh mục: ô khớp một nhóm sản phẩm, TÍNH TỪ PHẢI SANG. Danh mục là cột
+ * cuối cùng có dữ liệu nên ô hợp lệ ở xa nhất bên phải chính là nó — kể cả khi
+ * cùng tên nhóm còn lặp lại ở cột khác phía trước. -1 nếu cả dòng không có nhóm nào.
+ */
+function findCategoryCol(cols: string[]): number {
+  for (let i = cols.length - 1; i >= 0; i--) {
+    if (normalizeGroup(cell(cols, i))) return i;
+  }
+  return -1;
+}
+
+/**
+ * Suy độ trôi cột của một dòng từ hai mốc nội dung. Ưu tiên mốc Đơn vị vì nó nằm
+ * ngay sát khối size — cột dễ gán sai nhất. Nếu hai mốc mâu thuẫn thì layout đã
+ * đổi kiểu ta không đoán an toàn được (chèn/bớt cột ở GIỮA), đánh dấu `ambiguous`
+ * để dòng bị loại thay vì nhập lệch âm thầm.
+ *
+ * `catCol` trả kèm để đọc thẳng ô Danh mục, không phụ thuộc `shift`.
+ */
+function detectShift(cols: string[]): {
+  shift: number;
+  catCol: number;
+  ambiguous: boolean;
+} {
+  const unitCol = findUnitCol(cols);
+  const catCol = findCategoryCol(cols);
+  const sU = unitCol >= 0 ? unitCol - COL.unit : null;
+  const sC = catCol >= 0 ? catCol - COL.category : null;
+
+  let shift = 0;
+  let ambiguous = false;
+  if (sU !== null && sC !== null) {
+    if (sU === sC) shift = sU;
+    else {
+      shift = sU; // vẫn ưu tiên mốc Đơn vị để đọc, nhưng cờ ambiguous sẽ loại dòng
+      ambiguous = true;
+    }
+  } else if (sU !== null) shift = sU;
+  else if (sC !== null) shift = sC;
+
+  if (Math.abs(shift) > MAX_SHIFT) shift = 0;
+  return { shift, catCol, ambiguous };
+}
+
 /**
  * @param sizeLabels nhãn SizeType theo `position`, chỉ dùng để báo lỗi cho dễ hiểu.
  */
@@ -132,25 +200,34 @@ export function parseTsv(text: string, sizeLabels: string[]): ParsedRow[] {
 
   lines.forEach((line, i) => {
     const cols = line.split("\t");
-    const productName = cell(cols, COL.productName);
+
+    // Chỉ MÃ LSX (cột 0) là mốc cố định — cột bị thêm/bớt luôn nằm sau nó, nên
+    // mọi trường khác (kể cả tên SP) đọc theo `at(base) = base + shift`.
+    const { shift, catCol, ambiguous } = detectShift(cols);
+    const at = (base: number) => base + shift;
+
+    const productName = cell(cols, at(COL.productName));
 
     // Dòng đã xoá tên sản phẩm coi như dòng rác trong sheet: bỏ im lặng, không
     // báo lỗi và cũng không soi tiếp danh mục — kêu ca về nó chỉ tổ ồn.
     if (!productName) return;
 
     const code = cell(cols, COL.code);
-    const unitRaw = cell(cols, COL.unit);
-    const lineName = cell(cols, COL.lineName);
-    const total = int(cell(cols, COL.total));
-    const categoryRaw = cell(cols, COL.category);
+    const unitRaw = cell(cols, at(COL.unit));
+    const lineName = cell(cols, at(COL.lineName));
+    const total = int(cell(cols, at(COL.total)));
+    // Danh mục: lấy thẳng ô đã nhận diện; chỉ khi cả dòng không có nhóm nào mới
+    // rơi về vị trí canh theo shift (để báo lỗi "không tìm thấy" cho đúng ô).
+    const categoryRaw =
+      catCol >= 0 ? cell(cols, catCol) : cell(cols, at(COL.category));
 
     const qty = Array.from({ length: SIZE_COL_COUNT }, (_, k) =>
-      int(cell(cols, SIZE_COL_START + k))
+      int(cell(cols, at(SIZE_COL_START) + k))
     );
     const sum = qty.reduce((a, b) => a + b, 0);
 
     const parts = uniq(
-      cell(cols, COL.parts)
+      cell(cols, at(COL.parts))
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
@@ -172,7 +249,9 @@ export function parseTsv(text: string, sizeLabels: string[]): ParsedRow[] {
       category: normalizeGroup(categoryRaw),
     };
 
-    row.error = validate(row, sum, unitRaw, categoryRaw, sizeLabels, seenCodes);
+    row.error = ambiguous
+      ? "Layout cột lệch không nhất quán (Đơn vị và Danh mục không cùng độ trôi) — kiểm tra lại dòng dán."
+      : validate(row, sum, unitRaw, categoryRaw, sizeLabels, seenCodes);
     if (!row.error) seenCodes.add(code);
     out.push(row);
   });
@@ -192,17 +271,18 @@ function validate(
   if (seenCodes.has(row.code)) return `Mã "${row.code}" bị lặp trong dữ liệu dán.`;
 
   if (!row.category) {
-    if (!categoryRaw) return "Thiếu Danh mục (cột 103).";
+    if (!categoryRaw)
+      return "Không tìm thấy Danh mục (nhóm sản phẩm) trong dòng.";
     // Ô dán hỏng có thể dài hàng trăm ký tự — cắt bớt, không thì thông báo lỗi
     // dài hơn cả bảng.
     const shown =
       categoryRaw.length > 40 ? `${categoryRaw.slice(0, 40)}…` : categoryRaw;
-    return `Danh mục "${shown}" không có trong danh sách (cột 103).`;
+    return `Danh mục "${shown}" không có trong danh sách nhóm sản phẩm.`;
   }
 
   if (!row.unit)
     return `Đơn vị "${unitRaw || "(trống)"}" không hiểu — chỉ nhận "Cái" hoặc "Bộ".`;
-  if (sum === 0) return "Không có số lượng ở size nào (cột 13–23).";
+  if (sum === 0) return "Không có số lượng ở size nào.";
 
   // Sheet có nhiều size hơn danh mục SizeType thì gán sai size mà tổng vẫn đúng.
   for (let k = sizeLabels.length; k < SIZE_COL_COUNT; k++) {
@@ -211,7 +291,7 @@ function validate(
   }
 
   if (row.total > 0 && row.total !== sum)
-    return `Tổng ghi ở cột 24 là ${row.total} nhưng cộng các size ra ${sum}.`;
+    return `Tổng ghi ở cột tổng là ${row.total} nhưng cộng các size ra ${sum}.`;
 
   return undefined;
 }

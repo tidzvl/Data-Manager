@@ -162,9 +162,10 @@ export default function ImportModal({
 
         {drafts.length === 0 && badRows.length === 0 ? (
           <p className="text-xs text-muted">
-            Cột 13–23 là số lượng theo {sizeLabels.length} size trong danh mục.
-            Đơn vị <b className="text-ink">Bộ</b> tách thành hai dòng Áo và Quần,
-            sửa độc lập nhau.
+            Cột được dò tự động theo Đơn vị và Danh mục, nên lệch vài cột vẫn
+            nhận đúng. Khối size khớp {sizeLabels.length} size trong danh mục. Đơn
+            vị <b className="text-ink">Bộ</b> tách thành hai dòng Áo và Quần, sửa
+            độc lập nhau.
           </p>
         ) : (
           <>
